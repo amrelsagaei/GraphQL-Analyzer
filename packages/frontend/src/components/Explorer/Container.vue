@@ -69,14 +69,10 @@ const onNodeSelect = (item: TreeItem<unknown>) => {
 
 const saveExplorerState = () => {
   if (selectedSessionId.value !== undefined) {
-    storageService.set(
-      `explorer-expanded-keys-${selectedSessionId.value}`,
-      Array.from(expandedKeys.value),
-    );
-    storageService.set(
-      `explorer-selected-node-${selectedSessionId.value}`,
-      selectedKey.value ?? "",
-    );
+    storageService.setDeferred(`explorer-state-${selectedSessionId.value}`, {
+      expandedKeys: Array.from(expandedKeys.value),
+      selectedKey: selectedKey.value,
+    });
   }
 };
 
@@ -88,9 +84,18 @@ const loadExplorerState = async () => {
   await nextTick();
   await nextTick();
 
-  const storedExpandedKeys = storageService.get<string[]>(
-    `explorer-expanded-keys-${selectedSessionId.value}`,
-  );
+  const state = storageService.get<{
+    expandedKeys?: string[];
+    selectedKey?: string;
+  }>(`explorer-state-${selectedSessionId.value}`) ?? {
+    expandedKeys: storageService.get<string[]>(
+      `explorer-expanded-keys-${selectedSessionId.value}`,
+    ),
+    selectedKey: storageService.get<string>(
+      `explorer-selected-node-${selectedSessionId.value}`,
+    ),
+  };
+  const storedExpandedKeys = state?.expandedKeys;
   if (storedExpandedKeys && Array.isArray(storedExpandedKeys)) {
     expandedKeys.value = new Set(storedExpandedKeys);
     await nextTick();
@@ -98,9 +103,7 @@ const loadExplorerState = async () => {
     expandedKeys.value = new Set();
   }
 
-  const storedSelectedNodeKey = storageService.get<string>(
-    `explorer-selected-node-${selectedSessionId.value}`,
-  );
+  const storedSelectedNodeKey = state?.selectedKey;
 
   if (storedSelectedNodeKey !== undefined && storedSelectedNodeKey !== "") {
     selectedKey.value = storedSelectedNodeKey;
@@ -167,7 +170,7 @@ watch(selectedSessionId, async () => {
 });
 
 onMounted(async () => {
-  loadSessions();
+  await loadSessions();
   if (selectedSessionId.value !== undefined) {
     await nextTick();
     await nextTick();

@@ -1,7 +1,31 @@
-import type { DashboardActivity, Result } from "shared";
+import type {
+  DashboardActivity,
+  EncodedIntrospectionSchema,
+  ExplorerSession,
+  Result,
+  SchemaDiscoveryResult,
+} from "shared";
 import { computed, onMounted, onUnmounted, ref } from "vue";
 
 import { useSDK } from "@/plugins/sdk";
+import { createExplorerSessionStore } from "@/services/explorerSessions";
+import { createStorageService } from "@/services/storage";
+
+const ACTIVITIES_KEY = "dashboardActivities";
+const PENDING_SCAN_KEY = "graphql-analyzer-context-scan-request-id";
+const NAVIGATE_TO_ATTACK_KEY = "graphql-analyzer-navigate-to-attack";
+
+function generateId(): string {
+  return Date.now().toString(36) + Math.random().toString(36).substring(2);
+}
+
+function getDomainName(url: string): string {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return "Unknown";
+  }
+}
 
 export function useScanning(
   navigateTo?: (
@@ -9,13 +33,22 @@ export function useScanning(
   ) => void,
 ) {
   const sdk = useSDK();
+  const storage = createStorageService(sdk);
+  const sessionStore = createExplorerSessionStore(sdk);
 
   const scanUrl = ref("");
   const isScanning = ref(false);
-
   const recentSessions = ref<DashboardActivity[]>([]);
   const customHeaders = ref<Array<{ name: string; value: string }>>([]);
   const isProcessingScanRequest = ref(false);
+
+  const parsedHeaders = computed(() =>
+    Object.fromEntries(
+      customHeaders.value
+        .filter(({ name, value }) => name.trim() !== "" && value.trim() !== "")
+        .map(({ name, value }) => [name.trim(), value.trim()]),
+    ),
+  );
 
   const addCustomHeader = () => {
     if (customHeaders.value.length < 20) {
@@ -27,51 +60,129 @@ export function useScanning(
     customHeaders.value.splice(index, 1);
   };
 
-  const parsedHeaders = computed(() => {
-    const headers: Record<string, string> = {};
-    customHeaders.value.forEach((header) => {
-      if (header.name.trim() && header.value.trim()) {
-        headers[header.name.trim()] = header.value.trim();
-      }
-    });
-    return headers;
-  });
-
-  const getDomainName = (url: string): string => {
-    try {
-      return new URL(url).hostname;
-    } catch {
-      return "Unknown";
-    }
+  const loadRecentSessions = (): void => {
+    const activities = storage.get<DashboardActivity[]>(ACTIVITIES_KEY);
+    recentSessions.value = (Array.isArray(activities) ? activities : [])
+      .map((activity) => ({
+        ...activity,
+        createdAt: new Date(activity.createdAt),
+      }))
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
   };
 
-  const loadRecentSessions = (): void => {
-    try {
-      const stored = sdk.storage.get() as
-        | {
-            dashboardActivities?: DashboardActivity[];
-          }
-        | undefined;
-      if (
-        stored?.dashboardActivities !== undefined &&
-        Array.isArray(stored.dashboardActivities)
-      ) {
-        recentSessions.value = stored.dashboardActivities
-          .map((s) => ({
-            ...s,
-            createdAt: new Date(s.createdAt),
-          }))
-          .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
-      } else {
-        recentSessions.value = [];
-      }
-    } catch (error) {
-      recentSessions.value = [];
+  const addActivity = async (activity: DashboardActivity): Promise<void> => {
+    const activities = storage.get<DashboardActivity[]>(ACTIVITIES_KEY);
+    await storage.set(
+      ACTIVITIES_KEY,
+      [activity, ...(Array.isArray(activities) ? activities : [])].slice(0, 20),
+    );
+    loadRecentSessions();
+  };
+
+  const createSession = async (
+    schemaPayload: EncodedIntrospectionSchema,
+    metadata: Omit<
+      ExplorerSession,
+      "id" | "schemaPayload" | "schema" | "introspection" | "createdAt"
+    > & { requestId?: string },
+  ): Promise<ExplorerSession> =>
+    sessionStore.createSession({
+      ...metadata,
+      id: generateId(),
+      schemaPayload,
+      createdAt: new Date(),
+    });
+
+  const finishSuccessfulScan = async (
+    result: SchemaDiscoveryResult,
+    title: string,
+    url: string,
+    requestId?: string,
+  ): Promise<void> => {
+    if (result.schema === undefined) {
+      throw new Error("Introspection completed without returning a schema");
+    }
+
+    const requestSuffix =
+      requestId === undefined ? "" : ` (${requestId.slice(0, 8)})`;
+    const sessionTitle = `${title}${requestSuffix}`;
+    const session = await createSession(result.schema, {
+      title: sessionTitle,
+      url,
+      supportsIntrospection: true,
+      status: "success",
+      requestId,
+    });
+    if (requestId === undefined) await sessionStore.add(session);
+    else await sessionStore.upsertByRequestId(session);
+
+    await addActivity({
+      id: generateId(),
+      title: `Schema scan: ${sessionTitle}`,
+      url,
+      description:
+        requestId === undefined
+          ? "Successfully scanned GraphQL schema"
+          : "GraphQL schema introspection scan",
+      createdAt: session.createdAt,
+      status: "success",
+      type: "scan",
+    });
+
+    window.dispatchEvent(new CustomEvent("graphql-analyzer-sessions-updated"));
+    sdk.window.showToast("Schema scanned successfully!", {
+      variant: "success",
+    });
+    scanUrl.value = "";
+    customHeaders.value = [];
+    window.setTimeout(() => navigateTo?.("Explorer"), 800);
+  };
+
+  const finishDisabledScan = async (
+    title: string,
+    url: string,
+  ): Promise<void> => {
+    await addActivity({
+      id: generateId(),
+      title: `Scan attempted: ${title}`,
+      url,
+      description: "GraphQL endpoint found but introspection is disabled",
+      createdAt: new Date(),
+      status: "warning",
+      type: "scan",
+    });
+    sdk.window.showToast(
+      "GraphQL endpoint detected, but introspection is disabled. Cannot explore schema.",
+      { variant: "warning" },
+    );
+    scanUrl.value = "";
+  };
+
+  const handleDiscoveryResult = async (
+    result: Result<SchemaDiscoveryResult>,
+    title: string,
+    url: string,
+    requestId?: string,
+  ): Promise<void> => {
+    if (result.kind === "Error") {
+      sdk.window.showToast(`Scan failed: ${result.error}`, {
+        variant: "error",
+      });
+      return;
+    }
+    if (
+      result.value.supportsIntrospection &&
+      result.value.schema !== undefined
+    ) {
+      await finishSuccessfulScan(result.value, title, url, requestId);
+    } else {
+      await finishDisabledScan(title, url);
     }
   };
 
   const handleScan = async () => {
-    if (!scanUrl.value.trim()) {
+    const url = scanUrl.value.trim();
+    if (url === "") {
       sdk.window.showToast("Please enter a GraphQL endpoint URL", {
         variant: "warning",
       });
@@ -79,171 +190,28 @@ export function useScanning(
     }
 
     try {
-      const url = new URL(scanUrl.value.trim());
-      if (!["http:", "https:"].includes(url.protocol)) {
-        sdk.window.showToast(
-          "Invalid URL: Only HTTP and HTTPS protocols are supported",
-          { variant: "error" },
-        );
-        return;
+      const parsedUrl = new URL(url);
+      if (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") {
+        throw new Error("Only HTTP and HTTPS protocols are supported");
       }
     } catch (error) {
       sdk.window.showToast(
-        "Invalid URL format. Please enter a valid URL (e.g., https://example.com/graphql)",
+        `Invalid URL: ${error instanceof Error ? error.message : "invalid format"}`,
         { variant: "error" },
       );
       return;
     }
 
     isScanning.value = true;
-
     try {
-      const validHeaders: Record<string, string> = {};
-      Object.entries(parsedHeaders.value).forEach(([key, value]) => {
-        if (key && value && typeof value === "string") {
-          validHeaders[key] = value;
-        }
-      });
-
-      const headersToSend =
-        Object.keys(validHeaders).length > 0 ? validHeaders : {};
-
-      const result: Result<{
-        supportsIntrospection: boolean;
-        schema?: unknown;
-      }> = await sdk.backend.testGraphQLEndpoint(
-        scanUrl.value.trim(),
-        headersToSend,
+      const result = await sdk.backend.testGraphQLEndpoint(
+        url,
+        parsedHeaders.value,
       );
-
-      if (result.kind === "Error") {
-        sdk.window.showToast(`Scan failed: ${result.error}`, {
-          variant: "error",
-        });
-      } else {
-        type StorageData = {
-          explorerSessions?: Array<{
-            id: string;
-            title: string;
-            url: string;
-            schema?: unknown;
-            supportsIntrospection?: boolean;
-            createdAt: Date;
-            status: string;
-          }>;
-          selectedExplorerSessionId?: string;
-          dashboardActivities?: DashboardActivity[];
-        };
-        const currentStorage: StorageData =
-          (sdk.storage.get() as StorageData | undefined) ?? {};
-
-        if (
-          currentStorage.dashboardActivities === undefined ||
-          !Array.isArray(currentStorage.dashboardActivities)
-        ) {
-          currentStorage.dashboardActivities = [];
-        }
-
-        if (
-          result.value.supportsIntrospection === true &&
-          result.value.schema !== undefined
-        ) {
-          const sessionData = {
-            id:
-              Date.now().toString(36) + Math.random().toString(36).substring(2),
-            title: getDomainName(scanUrl.value.trim()),
-            url: scanUrl.value.trim(),
-            schema: result.value.schema,
-            supportsIntrospection: true,
-            createdAt: new Date(),
-            status: "success",
-          };
-
-          if (
-            currentStorage.explorerSessions === undefined ||
-            !Array.isArray(currentStorage.explorerSessions)
-          ) {
-            currentStorage.explorerSessions = [];
-          }
-
-          currentStorage.explorerSessions.push(sessionData);
-          currentStorage.selectedExplorerSessionId = sessionData.id;
-
-          const activityData = {
-            id:
-              Date.now().toString(36) + Math.random().toString(36).substring(2),
-            title: `Schema scan: ${sessionData.title}`,
-            url: sessionData.url,
-            description: "Successfully scanned GraphQL schema",
-            createdAt: sessionData.createdAt,
-            status: "success",
-            type: "scan",
-          };
-
-          currentStorage.dashboardActivities.unshift(activityData);
-
-          if (currentStorage.dashboardActivities.length > 20) {
-            currentStorage.dashboardActivities =
-              currentStorage.dashboardActivities.slice(0, 20);
-          }
-
-          await sdk.storage.set(
-            currentStorage as unknown as Record<string, never>,
-          );
-          loadRecentSessions();
-          window.dispatchEvent(
-            new CustomEvent("graphql-analyzer-sessions-updated"),
-          );
-
-          sdk.window.showToast("Schema scanned successfully!", {
-            variant: "success",
-          });
-          scanUrl.value = "";
-          customHeaders.value = [];
-
-          setTimeout(() => {
-            if (navigateTo) {
-              navigateTo("Explorer");
-            }
-          }, 800);
-        } else {
-          const activityData: DashboardActivity = {
-            id:
-              Date.now().toString(36) + Math.random().toString(36).substring(2),
-            title: `Scan attempted: ${getDomainName(scanUrl.value.trim())}`,
-            url: scanUrl.value.trim(),
-            description: "GraphQL endpoint found but introspection is disabled",
-            createdAt: new Date(),
-            status: "warning",
-            type: "scan",
-          };
-
-          currentStorage.dashboardActivities.unshift(activityData);
-
-          if (currentStorage.dashboardActivities.length > 20) {
-            currentStorage.dashboardActivities =
-              currentStorage.dashboardActivities.slice(0, 20);
-          }
-
-          await sdk.storage.set(
-            currentStorage as unknown as Record<string, never>,
-          );
-          loadRecentSessions();
-          window.dispatchEvent(
-            new CustomEvent("graphql-analyzer-sessions-updated"),
-          );
-
-          sdk.window.showToast(
-            "GraphQL endpoint detected, but introspection is disabled. Cannot explore schema.",
-            { variant: "warning" },
-          );
-          scanUrl.value = "";
-        }
-      }
-    } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : "Unknown error";
+      await handleDiscoveryResult(result, getDomainName(url), url);
+    } catch (error) {
       sdk.window.showToast(
-        `Scan failed: ${errorMsg}. Please check the URL and try again.`,
+        `Scan failed: ${error instanceof Error ? error.message : "Unknown error"}`,
         { variant: "error" },
       );
     } finally {
@@ -251,225 +219,72 @@ export function useScanning(
     }
   };
 
-  const selectSession = async (session: DashboardActivity) => {
-    if (session.type === "attack") {
-      if (navigateTo !== undefined) {
-        const currentStorage =
-          (sdk.storage.get() as Record<string, unknown>) ?? {};
-        currentStorage["graphql-analyzer-navigate-to-attack"] =
-          session.attackSessionId ?? "";
-        await sdk.storage.set(
-          currentStorage as unknown as Record<string, never>,
-        );
-        navigateTo("Attacks");
-      }
-      return;
-    }
-
-    if (navigateTo !== undefined) {
-      navigateTo("Explorer");
-    }
-  };
-
-  const deleteAllData = async (): Promise<void> => {
-    try {
-      const emptyStorage: Record<string, unknown> = {};
-
-      await sdk.storage.set(emptyStorage as unknown as Record<string, never>);
-
-      recentSessions.value = [];
-
-      sdk.window.showToast("All sessions and data deleted successfully", {
-        variant: "success",
-      });
-    } catch (error) {
-      sdk.window.showToast("Failed to delete all data", { variant: "error" });
-    }
-  };
-
   const handleContextScanRequest = async (event: CustomEvent) => {
     const requestId = event.detail?.requestId;
     if (
-      requestId === undefined ||
-      requestId === null ||
+      typeof requestId !== "string" ||
       requestId === "" ||
-      isProcessingScanRequest.value === true
+      isProcessingScanRequest.value
     ) {
       return;
     }
 
     isProcessingScanRequest.value = true;
     isScanning.value = true;
-
     try {
-      const result = await sdk.backend.testGraphQLEndpointFromRequest(
-        requestId,
-        parsedHeaders.value,
-      );
-
-      if (result.kind === "Error") {
-        sdk.window.showToast(`Scan failed: ${result.error}`, {
-          variant: "error",
-        });
-        isScanning.value = false;
-        isProcessingScanRequest.value = false;
-        return;
-      }
-
-      type StorageData = {
-        explorerSessions?: Array<{
-          id: string;
-          title: string;
-          url: string;
-          schema?: unknown;
-          supportsIntrospection?: boolean;
-          createdAt: Date;
-          status: string;
-          requestId?: string;
-        }>;
-        selectedExplorerSessionId?: string;
-        dashboardActivities?: DashboardActivity[];
-      };
-      const currentStorage: StorageData =
-        (sdk.storage.get() as StorageData | undefined) ?? {};
-
-      if (
-        currentStorage.dashboardActivities === undefined ||
-        !Array.isArray(currentStorage.dashboardActivities)
-      ) {
-        currentStorage.dashboardActivities = [];
-      }
-
-      if (
-        result.value.supportsIntrospection === true &&
-        result.value.schema !== undefined
-      ) {
-        const requestInfoResult = await sdk.backend.getRequestInfo(requestId);
-        let domainName = "Unknown";
-        let fullUrl = `request:${requestId}`;
-
-        if (requestInfoResult.kind === "Ok") {
-          try {
-            const urlObj = new URL(requestInfoResult.value.url);
-            domainName = urlObj.hostname;
-            fullUrl = requestInfoResult.value.url;
-          } catch {
-            domainName = requestInfoResult.value.host || "Unknown";
-          }
-        }
-
-        const sessionData = {
-          id: Date.now().toString(36) + Math.random().toString(36).substr(2),
-          title: `${domainName} (${requestId.substring(0, 8)})`,
-          url: fullUrl,
-          schema: result.value.schema,
-          supportsIntrospection: true,
-          createdAt: new Date(),
-          status: "success",
-          requestId: requestId,
-        };
-
-        if (
-          currentStorage.explorerSessions === undefined ||
-          !Array.isArray(currentStorage.explorerSessions)
-        ) {
-          currentStorage.explorerSessions = [];
-        }
-
-        const existingSession = currentStorage.explorerSessions.find(
-          (s) => s.requestId === requestId,
-        );
-        if (existingSession === undefined) {
-          currentStorage.explorerSessions.push(sessionData);
-        } else {
-          const existingIndex = currentStorage.explorerSessions.findIndex(
-            (s) => s.requestId === requestId,
-          );
-          if (existingIndex !== -1) {
-            currentStorage.explorerSessions[existingIndex] = sessionData;
-          }
-        }
-        currentStorage.selectedExplorerSessionId = sessionData.id;
-
-        const activityData = {
-          id: Date.now().toString(36) + Math.random().toString(36).substr(2),
-          title: `Schema scan ${domainName} (${requestId.substring(0, 8)})`,
-          url: fullUrl,
-          description: "GraphQL schema introspection scan",
-          createdAt: new Date(),
-          status: "success",
-          type: "scan",
-        };
-
-        currentStorage.dashboardActivities.unshift(activityData);
-
-        if (currentStorage.dashboardActivities.length > 20) {
-          currentStorage.dashboardActivities =
-            currentStorage.dashboardActivities.slice(0, 20);
-        }
-
-        await sdk.storage.set(
-          currentStorage as unknown as Record<string, never>,
-        );
-        loadRecentSessions();
-        window.dispatchEvent(
-          new CustomEvent("graphql-analyzer-sessions-updated"),
-        );
-
-        sdk.window.showToast("Schema scanned successfully!", {
-          variant: "success",
-        });
-        scanUrl.value = "";
-        customHeaders.value = [];
-
-        setTimeout(() => {
-          if (navigateTo) {
-            navigateTo("Explorer");
-          }
-        }, 800);
-      } else {
-        const activityData: DashboardActivity = {
-          id: Date.now().toString(36) + Math.random().toString(36).substr(2),
-          title: `Scan attempted: Request ${requestId.substring(0, 8)}`,
-          url: `request:${requestId}`,
-          description: "GraphQL endpoint found but introspection is disabled",
-          createdAt: new Date(),
-          status: "warning",
-          type: "scan",
-        };
-
-        currentStorage.dashboardActivities.unshift(activityData);
-
-        if (currentStorage.dashboardActivities.length > 20) {
-          currentStorage.dashboardActivities =
-            currentStorage.dashboardActivities.slice(0, 20);
-        }
-
-        await sdk.storage.set(
-          currentStorage as unknown as Record<string, never>,
-        );
-        loadRecentSessions();
-        window.dispatchEvent(
-          new CustomEvent("graphql-analyzer-sessions-updated"),
-        );
-
-        sdk.window.showToast(
-          "GraphQL endpoint detected, but introspection is disabled. Cannot explore schema.",
-          { variant: "warning" },
-        );
-        scanUrl.value = "";
-      }
-
-      isScanning.value = false;
-      isProcessingScanRequest.value = false;
-
-      const updatedStorage = sdk.storage.get() as Record<string, unknown>;
-      delete updatedStorage["graphql-analyzer-context-scan-request-id"];
-      await sdk.storage.set(updatedStorage as unknown as Record<string, never>);
+      const [result, requestInfo] = await Promise.all([
+        sdk.backend.testGraphQLEndpointFromRequest(
+          requestId,
+          parsedHeaders.value,
+        ),
+        sdk.backend.getRequestInfo(requestId),
+      ]);
+      const url =
+        requestInfo.kind === "Ok"
+          ? requestInfo.value.url
+          : `request:${requestId}`;
+      const parsedDomain =
+        requestInfo.kind === "Ok"
+          ? getDomainName(requestInfo.value.url)
+          : "Unknown";
+      const title =
+        requestInfo.kind === "Ok"
+          ? parsedDomain === "Unknown"
+            ? requestInfo.value.host
+            : parsedDomain
+          : `Request ${requestId.slice(0, 8)}`;
+      await handleDiscoveryResult(result, title, url, requestId);
     } catch (error) {
+      sdk.window.showToast(
+        `Scan failed: ${error instanceof Error ? error.message : "Unknown error"}`,
+        { variant: "error" },
+      );
+    } finally {
       isScanning.value = false;
       isProcessingScanRequest.value = false;
-      sdk.window.showToast("Scan failed", { variant: "error" });
+      await storage.remove(PENDING_SCAN_KEY);
+    }
+  };
+
+  const selectSession = async (session: DashboardActivity) => {
+    if (session.type === "attack") {
+      await storage.set(NAVIGATE_TO_ATTACK_KEY, session.attackSessionId ?? "");
+      navigateTo?.("Attacks");
+    } else {
+      navigateTo?.("Explorer");
+    }
+  };
+
+  const deleteAllData = async (): Promise<void> => {
+    try {
+      await sessionStore.clear();
+      await storage.clear();
+      recentSessions.value = [];
+      sdk.window.showToast("All sessions and data deleted successfully", {
+        variant: "success",
+      });
+    } catch {
+      sdk.window.showToast("Failed to delete all data", { variant: "error" });
     }
   };
 
@@ -478,21 +293,8 @@ export function useScanning(
       "graphql-analyzer-context-scan-request",
       handleContextScanRequest as unknown as EventListener,
     );
-
-    const storage = sdk.storage.get() as
-      | {
-          "graphql-analyzer-context-scan-request-id"?: string;
-        }
-      | undefined;
-
-    const pendingRequestId =
-      storage?.["graphql-analyzer-context-scan-request-id"];
-
-    if (
-      pendingRequestId !== undefined &&
-      pendingRequestId !== null &&
-      pendingRequestId !== ""
-    ) {
+    const pendingRequestId = storage.get<string>(PENDING_SCAN_KEY);
+    if (pendingRequestId !== undefined && pendingRequestId !== "") {
       await handleContextScanRequest({
         detail: { requestId: pendingRequestId },
       } as CustomEvent);

@@ -19,23 +19,15 @@ export const useCodeFormatter = (selectedSession: {
   const selectedLanguage = ref<"json" | "javascript" | "graphql">("json");
 
   const formatGraphQLField = (
-    field: GraphQLField & { rawIntrospectionData?: unknown },
+    field: GraphQLField,
     type: "query" | "mutation" | "subscription",
   ): { code: string; query?: string } => {
     const schema = selectedSession.value?.schema;
-    if (schema?.allTypes === undefined) {
-      const dataToShow = field.rawIntrospectionData ?? field;
-      return { code: JSON.stringify(dataToShow, null, 2) };
-    }
+    if (schema === undefined) return { code: JSON.stringify(field, null, 2) };
 
     const maxDepth =
       storageService.get<number>("graphql-analyzer-max-depth") ?? 5;
-    const generatedQuery = generateGraphQLQuery(
-      field,
-      type,
-      schema.allTypes,
-      maxDepth,
-    );
+    const generatedQuery = generateGraphQLQuery(field, type, schema, maxDepth);
     return { code: generatedQuery, query: generatedQuery };
   };
 
@@ -48,19 +40,12 @@ export const useCodeFormatter = (selectedSession: {
     );
   };
 
-  const formatObjectType = (
-    type: GraphQLType & { rawIntrospectionData?: unknown },
-  ): string => {
-    const dataToShow = type.rawIntrospectionData ?? type;
-    return JSON.stringify(dataToShow, null, 2);
+  const formatObjectType = (type: GraphQLType): string => {
+    return JSON.stringify(type, null, 2);
   };
 
-  const formatEnum = (enumType: {
-    name: string;
-    rawIntrospectionData?: unknown;
-  }): string => {
-    const dataToShow = enumType.rawIntrospectionData ?? enumType;
-    return JSON.stringify(dataToShow, null, 2);
+  const formatEnum = (enumType: { name: string }): string => {
+    return JSON.stringify(enumType, null, 2);
   };
 
   const formatPointOfInterest = (poi: PointOfInterest): string => {
@@ -82,9 +67,7 @@ export const useCodeFormatter = (selectedSession: {
         case "query":
         case "mutation":
         case "subscription": {
-          const field = node.data.content as GraphQLField & {
-            rawIntrospectionData?: unknown;
-          };
+          const field = node.data.content as GraphQLField;
           const result = formatGraphQLField(field, node.data.type);
           selectedCode.value = result.code;
           selectedQuery.value = result.query;
@@ -98,9 +81,7 @@ export const useCodeFormatter = (selectedSession: {
         }
         case "object-type": {
           selectedCode.value = formatObjectType(
-            node.data.content as GraphQLType & {
-              rawIntrospectionData?: unknown;
-            },
+            node.data.content as GraphQLType,
           );
           selectedLanguage.value = "json";
           break;
@@ -109,7 +90,6 @@ export const useCodeFormatter = (selectedSession: {
           selectedCode.value = formatEnum(
             node.data.content as {
               name: string;
-              rawIntrospectionData?: unknown;
             },
           );
           selectedLanguage.value = "json";
@@ -123,14 +103,11 @@ export const useCodeFormatter = (selectedSession: {
           break;
         }
         case "json-schema": {
-          const content = node.data.content;
-          const rawData =
-            typeof content === "object" &&
-            content !== null &&
-            "rawIntrospection" in content
-              ? content.rawIntrospection
-              : content;
-          selectedCode.value = JSON.stringify(rawData, null, 2);
+          selectedCode.value = JSON.stringify(
+            selectedSession.value?.introspection ?? node.data.content,
+            null,
+            2,
+          );
           selectedLanguage.value = "json";
           break;
         }

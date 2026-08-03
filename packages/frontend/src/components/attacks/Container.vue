@@ -20,10 +20,10 @@ import AttackConfiguration from "@/components/attacks/AttackConfiguration.vue";
 import AttackResultsTable from "@/components/attacks/AttackResultsTable.vue";
 import TargetSelection from "@/components/attacks/TargetSelection.vue";
 import { CodeEditor } from "@/components/common";
-import type { ExplorerSession } from "@/components/Explorer/useSessions";
 import { useSDK } from "@/plugins/sdk";
 import { createActivityService } from "@/services/activity";
 import { createBackgroundAttackService } from "@/services/backgroundAttacks";
+import { createExplorerSessionStore } from "@/services/explorerSessions";
 import { createReplayService } from "@/services/replay";
 import { createStorageService } from "@/services/storage";
 
@@ -32,6 +32,7 @@ const replayService = createReplayService(sdk);
 const activityService = createActivityService(sdk);
 const backgroundAttackService = createBackgroundAttackService(sdk);
 const storageService = createStorageService(sdk);
+const explorerSessionStore = createExplorerSessionStore(sdk);
 
 defineProps<{
   navigateTo?: (
@@ -64,7 +65,7 @@ type CodeEditorInstance =
     }
   | undefined;
 
-const sessions = ref<ExplorerSession[]>([]);
+const sessions = explorerSessionStore.sessions;
 const selectedSessionId = ref<string | undefined>(undefined);
 const customUrl = ref("");
 const useCustomUrl = ref(false);
@@ -330,38 +331,21 @@ const toggleAttack = (attackType: AttackType) => {
   }
 };
 
-const loadSessions = () => {
-  try {
-    const stored = sdk.storage.get() as
-      | {
-          explorerSessions?: ExplorerSession[];
-        }
-      | undefined;
-    if (
-      stored?.explorerSessions !== undefined &&
-      Array.isArray(stored.explorerSessions)
-    ) {
-      sessions.value = stored.explorerSessions.map((s: ExplorerSession) => ({
-        ...s,
-        createdAt: new Date(s.createdAt),
-      }));
-
-      if (sessions.value.length > 0 && selectedSessionId.value === undefined) {
-        selectedSessionId.value = sessions.value[0]?.id;
-      }
-    }
-  } catch (error) {
-    sessions.value = [];
+const loadSessions = async () => {
+  await explorerSessionStore.load();
+  if (sessions.value.length > 0 && selectedSessionId.value === undefined) {
+    selectedSessionId.value = sessions.value[0]?.id;
   }
 };
 
-const saveAttackSessions = async () => {
+const saveAttackSessions = async (deferred = false) => {
   try {
-    const currentStorage = (sdk.storage.get() as Record<string, unknown>) ?? {};
-    currentStorage.attackSessions = attackSessions.value;
-    currentStorage.selectedAttackSessionId = selectedAttackSessionId.value;
-
-    await sdk.storage.set(currentStorage as unknown as Record<string, never>);
+    const data = {
+      attackSessions: attackSessions.value,
+      selectedAttackSessionId: selectedAttackSessionId.value,
+    };
+    if (deferred) storageService.setMultipleDeferred(data);
+    else await storageService.setMultiple(data);
   } catch (error) {
     sdk.window.showToast("Failed to save attack sessions", {
       variant: "error",
@@ -371,12 +355,10 @@ const saveAttackSessions = async () => {
 
 const loadAttackSessions = () => {
   try {
-    const stored = sdk.storage.get() as
-      | {
-          attackSessions?: AttackSession[];
-          selectedAttackSessionId?: string;
-        }
-      | undefined;
+    const stored = storageService.getAll() as {
+      attackSessions?: AttackSession[];
+      selectedAttackSessionId?: string;
+    };
     if (
       stored?.attackSessions !== undefined &&
       Array.isArray(stored.attackSessions)
@@ -1455,7 +1437,7 @@ const handleAttackProgress = async (event: CustomEvent) => {
       if (session !== undefined) {
         session.results = results;
         session.status = status.isComplete === true ? "completed" : "running";
-        saveAttackSessions();
+        void saveAttackSessions(true);
       }
     }
 
@@ -1537,7 +1519,7 @@ onMounted(async () => {
     handleAttackComplete as unknown as EventListener,
   );
 
-  loadSessions();
+  await loadSessions();
   loadAttackSessions();
 
   const attackSessionId = storageService.get<string>(

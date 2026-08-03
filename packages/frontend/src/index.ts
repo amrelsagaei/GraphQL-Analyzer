@@ -5,6 +5,7 @@ import Tooltip from "primevue/tooltip";
 import { type Component, createApp, markRaw } from "vue";
 
 import { SDKPlugin } from "./plugins/sdk";
+import { createStorageService } from "./services/storage";
 import "./styles/index.css";
 import type { FrontendSDK } from "./types";
 import { isGraphQLRequest } from "./utils/graphql";
@@ -12,6 +13,7 @@ import App from "./views/App.vue";
 import GraphQLViewMode from "./views/GraphQLViewMode.vue";
 
 export const init = (sdk: FrontendSDK) => {
+  const storage = createStorageService(sdk);
   const app = createApp(App);
 
   app.use(PrimeVue, {
@@ -88,13 +90,12 @@ export const init = (sdk: FrontendSDK) => {
         page: "Dashboard" as const,
         timestamp: Date.now(),
       };
-      const currentStorage =
-        (sdk.storage.get() as Record<string, unknown>) ?? {};
-      currentStorage["graphql-analyzer-navigate-to"] = navigationData.page;
-      currentStorage["graphql-analyzer-navigate-timestamp"] =
-        navigationData.timestamp.toString();
-      currentStorage["graphql-analyzer-context-scan-request-id"] = requestId;
-      await sdk.storage.set(currentStorage as unknown as Record<string, never>);
+      await storage.setMultiple({
+        "graphql-analyzer-navigate-to": navigationData.page,
+        "graphql-analyzer-navigate-timestamp":
+          navigationData.timestamp.toString(),
+        "graphql-analyzer-context-scan-request-id": requestId,
+      });
 
       window.dispatchEvent(
         new CustomEvent("graphql-analyzer-navigate", {
@@ -151,13 +152,12 @@ export const init = (sdk: FrontendSDK) => {
         page: "Attacks" as const,
         timestamp: Date.now(),
       };
-      const currentStorage =
-        (sdk.storage.get() as Record<string, unknown>) ?? {};
-      currentStorage["graphql-analyzer-navigate-to"] = navigationData.page;
-      currentStorage["graphql-analyzer-navigate-timestamp"] =
-        navigationData.timestamp.toString();
-      currentStorage["graphql-analyzer-context-attack-request-id"] = requestId;
-      await sdk.storage.set(currentStorage as unknown as Record<string, never>);
+      await storage.setMultiple({
+        "graphql-analyzer-navigate-to": navigationData.page,
+        "graphql-analyzer-navigate-timestamp":
+          navigationData.timestamp.toString(),
+        "graphql-analyzer-context-attack-request-id": requestId,
+      });
 
       window.dispatchEvent(
         new CustomEvent("graphql-analyzer-navigate", {

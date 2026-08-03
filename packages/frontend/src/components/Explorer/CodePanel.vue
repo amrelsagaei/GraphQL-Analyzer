@@ -7,9 +7,11 @@ import type { ExplorerSession } from "./useSessions";
 import { CodeEditor } from "@/components/common";
 import { useSDK } from "@/plugins/sdk";
 import { createReplayService } from "@/services/replay";
+import { createStorageService } from "@/services/storage";
 import { replaceHttpBody } from "@/utils/graphql";
 
 const sdk = useSDK();
+const storage = createStorageService(sdk);
 
 const props = defineProps<{
   selectedCode: string;
@@ -44,9 +46,7 @@ const copyToClipboard = async () => {
 
 const openInVoyager = async () => {
   if (props.selectedSession !== undefined) {
-    const currentStorage = (sdk.storage.get() as Record<string, unknown>) ?? {};
-    currentStorage["voyager-auto-select-session"] = props.selectedSession.id;
-    await sdk.storage.set(currentStorage as unknown as Record<string, never>);
+    await storage.set("voyager-auto-select-session", props.selectedSession.id);
     emit("openInVoyager");
   }
 };
@@ -62,11 +62,11 @@ const sendToAttacker = async () => {
     return;
   }
 
-  const currentStorage = (sdk.storage.get() as Record<string, unknown>) ?? {};
-  currentStorage["graphql-analyzer-navigate-to"] = "Attacks";
-  currentStorage["graphql-analyzer-navigate-timestamp"] = Date.now().toString();
-  currentStorage["graphql-analyzer-context-attack-request-id"] = requestId;
-  await sdk.storage.set(currentStorage as unknown as Record<string, never>);
+  await storage.setMultiple({
+    "graphql-analyzer-navigate-to": "Attacks",
+    "graphql-analyzer-navigate-timestamp": Date.now().toString(),
+    "graphql-analyzer-context-attack-request-id": requestId,
+  });
 
   window.dispatchEvent(
     new CustomEvent("graphql-analyzer-navigate", {
