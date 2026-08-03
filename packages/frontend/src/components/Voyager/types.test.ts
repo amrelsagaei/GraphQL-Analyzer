@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import type { D3Node } from "./types";
-import { getGraphBounds, getViewportExtent } from "./types";
+import {
+  getGraphBounds,
+  getViewportExtent,
+  getVisibleFieldRange,
+} from "./types";
 
 describe("Voyager geometry", () => {
   it("handles very large node collections without argument spreading", () => {
@@ -33,5 +37,23 @@ describe("Voyager geometry", () => {
       [0, 0],
       [1, 1],
     ]);
+  });
+
+  it("does not render rows when only the area above a node's fields is visible", () => {
+    expect(getVisibleFieldRange(99, 1_000, 0, 100)).toEqual({
+      firstIndex: 0,
+      lastIndex: 0,
+    });
+  });
+
+  it("clamps visible field ranges to the available rows", () => {
+    expect(getVisibleFieldRange(0, 10, 48, 85)).toEqual({
+      firstIndex: 1,
+      lastIndex: 4,
+    });
+    expect(getVisibleFieldRange(0, 10, 10_000, 11_000)).toEqual({
+      firstIndex: 10,
+      lastIndex: 10,
+    });
   });
 });

@@ -3,7 +3,12 @@ import type { GraphQLField, GraphQLSchema, GraphQLType } from "shared";
 import type { Ref } from "vue";
 
 import type { D3Link, D3Node, VoyagerData } from "./types";
-import { extractTypeName, getViewportExtent, LAYOUT } from "./types";
+import {
+  extractTypeName,
+  getViewportExtent,
+  getVisibleFieldRange,
+  LAYOUT,
+} from "./types";
 
 import { useSDK } from "@/plugins/sdk";
 
@@ -254,19 +259,11 @@ export function useVoyagerVisualization(
         visibleWorld: WorldViewport,
       ) => {
         group.each(function (nodeData) {
-          const firstIndex = Math.max(
-            0,
-            Math.floor(
-              (visibleWorld.top - nodeData.y - LAYOUT.HEADER_HEIGHT) /
-                LAYOUT.FIELD_HEIGHT,
-            ),
-          );
-          const lastIndex = Math.min(
+          const { firstIndex, lastIndex } = getVisibleFieldRange(
+            nodeData.y,
             nodeData.fields?.length ?? 0,
-            Math.ceil(
-              (visibleWorld.bottom - nodeData.y - LAYOUT.HEADER_HEIGHT) /
-                LAYOUT.FIELD_HEIGHT,
-            ),
+            visibleWorld.top,
+            visibleWorld.bottom,
           );
           const fields = (nodeData.fields ?? [])
             .slice(firstIndex, lastIndex)

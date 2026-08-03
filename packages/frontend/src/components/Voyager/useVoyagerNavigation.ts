@@ -36,7 +36,7 @@ export function useVoyagerNavigation(
       items.push({
         name,
         type,
-        childCount: fields.length,
+        childCount: search === "" ? fields.length : matchingFields.length,
         children: shouldMaterializeChildren
           ? matchingFields.map((field) => ({
               name: field.name,

@@ -37,16 +37,19 @@ export function useVoyagerSessions() {
 
   const loadSessions = async () => {
     await sessionStore.load();
-    const requestedId =
-      storage.get<string>(AUTO_SELECT_KEY) ?? storage.get<string>(SELECTED_KEY);
+    const autoSelectedId = storage.get<string>(AUTO_SELECT_KEY);
+    const persistedId = storage.get<string>(SELECTED_KEY);
     const fallbackId = sessionStore.selectedSessionId.value;
-    const selectedId = [requestedId, fallbackId].find(
+    selectedSessionId.value = [
+      autoSelectedId,
+      persistedId,
+      fallbackId,
+    ].find(
       (id) =>
         id !== undefined &&
         introspectionSessions.value.some((session) => session.id === id),
     );
-    selectedSessionId.value = selectedId;
-    if (storage.get<string>(AUTO_SELECT_KEY) !== undefined) {
+    if (autoSelectedId !== undefined) {
       await storage.remove(AUTO_SELECT_KEY);
     }
   };

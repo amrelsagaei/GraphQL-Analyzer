@@ -95,6 +95,33 @@ export const LAYOUT = {
   PADDING: 20,
 };
 
+export function getVisibleFieldRange(
+  nodeY: number,
+  fieldCount: number,
+  viewportTop: number,
+  viewportBottom: number,
+): { firstIndex: number; lastIndex: number } {
+  const firstIndex = Math.min(
+    fieldCount,
+    Math.max(
+      0,
+      Math.floor(
+        (viewportTop - nodeY - LAYOUT.HEADER_HEIGHT) / LAYOUT.FIELD_HEIGHT,
+      ),
+    ),
+  );
+  const lastIndex = Math.min(
+    fieldCount,
+    Math.max(
+      firstIndex,
+      Math.ceil(
+        (viewportBottom - nodeY - LAYOUT.HEADER_HEIGHT) / LAYOUT.FIELD_HEIGHT,
+      ),
+    ),
+  );
+  return { firstIndex, lastIndex };
+}
+
 export function extractTypeName(typeString: string): string {
   if (typeString === "") return "";
   return typeString.replace(/[[\]!]/g, "");

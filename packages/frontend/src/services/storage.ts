@@ -9,6 +9,7 @@ export class StorageService {
   private revision = 0;
   private readonly dirtyKeyRevisions = new Map<string, number>();
   private writePromise: Promise<void> | undefined;
+  private deferredTimer: ReturnType<typeof setTimeout> | undefined;
   private retryAttempt = 0;
 
   constructor(private readonly sdk: FrontendSDK) {

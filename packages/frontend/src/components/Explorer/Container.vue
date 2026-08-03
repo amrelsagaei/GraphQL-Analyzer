@@ -2,7 +2,7 @@
 import Card from "primevue/card";
 import Splitter from "primevue/splitter";
 import SplitterPanel from "primevue/splitterpanel";
-import { computed, nextTick, onMounted, ref, watch } from "vue";
+import { computed, nextTick, onActivated, onMounted, ref, watch } from "vue";
 
 import CodePanel from "./CodePanel.vue";
 import Header from "./Header.vue";
@@ -157,6 +157,17 @@ const handleRenameSession = (sessionId: string, newName: string) => {
   renameSession(sessionId, newName);
 };
 
+const restoreExplorerPage = async () => {
+  await loadSessions();
+  if (selectedSessionId.value !== undefined) {
+    await nextTick();
+    await nextTick();
+    await loadExplorerState();
+  }
+};
+
+let hasCompletedInitialMount = false;
+
 watch(selectedSessionId, async () => {
   if (selectedSessionId.value !== undefined) {
     await nextTick();
@@ -170,12 +181,16 @@ watch(selectedSessionId, async () => {
 });
 
 onMounted(async () => {
-  await loadSessions();
-  if (selectedSessionId.value !== undefined) {
-    await nextTick();
-    await nextTick();
-    await loadExplorerState();
+  try {
+    await restoreExplorerPage();
+  } finally {
+    hasCompletedInitialMount = true;
   }
+});
+
+onActivated(async () => {
+  if (!hasCompletedInitialMount) return;
+  await restoreExplorerPage();
 });
 </script>
 

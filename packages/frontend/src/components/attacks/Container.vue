@@ -13,7 +13,15 @@ import type {
   AttackSession,
   AttackType,
 } from "shared";
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
+import {
+  computed,
+  nextTick,
+  onActivated,
+  onMounted,
+  onUnmounted,
+  ref,
+  watch,
+} from "vue";
 
 import { AttackTab } from "@/components/attacks";
 import AttackConfiguration from "@/components/attacks/AttackConfiguration.vue";
@@ -33,6 +41,8 @@ const activityService = createActivityService(sdk);
 const backgroundAttackService = createBackgroundAttackService(sdk);
 const storageService = createStorageService(sdk);
 const explorerSessionStore = createExplorerSessionStore(sdk);
+const PENDING_ATTACK_SESSION_KEY = "graphql-analyzer-navigate-to-attack";
+const PENDING_ATTACK_REQUEST_KEY = "graphql-analyzer-context-attack-request-id";
 
 defineProps<{
   navigateTo?: (
@@ -82,6 +92,8 @@ const pollInterval = ref<number | undefined>(undefined);
 const attackSessions = ref<AttackSession[]>([]);
 const selectedAttackSessionId = ref<string | undefined>(undefined);
 const currentActiveAttackId = ref<string | undefined>(undefined);
+let contextAttackRequestIdInProgress: string | undefined;
+let hasCompletedInitialMount = false;
 
 const requestEditor = ref<CodeEditorInstance>(undefined);
 const responseEditor = ref<CodeEditorInstance>(undefined);
@@ -1391,7 +1403,21 @@ const getAttackTypeLabel = (attackType: string) => {
 const handleContextAttack = async (event: CustomEvent) => {
   const requestId = event.detail?.requestId as string | undefined;
   if (requestId !== undefined && requestId !== null && requestId !== "") {
+    if (contextAttackRequestIdInProgress === requestId) return;
+    contextAttackRequestIdInProgress = requestId;
     try {
+      if (
+        storageService.get<string>(PENDING_ATTACK_REQUEST_KEY) === requestId
+      ) {
+        try {
+          await storageService.remove(PENDING_ATTACK_REQUEST_KEY);
+        } catch (error) {
+          console.error(
+            `Failed to clear pending attack request: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
+      }
+
       const requestInfoResult = await sdk.backend.getRequestInfo(requestId);
       if (requestInfoResult.kind === "Ok") {
         selectedRequest.value = {
@@ -1419,6 +1445,8 @@ const handleContextAttack = async (event: CustomEvent) => {
         `Failed to create attack session: ${error instanceof Error ? error.message : "Unknown error"}`,
         { variant: "error" },
       );
+    } finally {
+      contextAttackRequestIdInProgress = undefined;
     }
   }
 };
@@ -1505,6 +1533,67 @@ const handleAttackComplete = async (event: CustomEvent) => {
   }
 };
 
+const restoreBackgroundAttack = () => {
+  if (!backgroundAttackService.hasBackgroundAttack()) return;
+  const attackInfo = backgroundAttackService.getBackgroundAttackInfo();
+  if (attackInfo === undefined) return;
+
+  nextTick(() => {
+    const attackSession = attackSessions.value.find(
+      (session) =>
+        session.status === "running" &&
+        session.createdAt.getTime() >= Date.now() - 5 * 60 * 1000,
+    );
+
+    if (attackSession !== undefined) {
+      isAttacking.value = true;
+      currentAttackSessionId.value = attackInfo.sessionId;
+      currentActiveAttackId.value = attackSession.id;
+      selectedAttackSessionId.value = attackSession.id;
+      attackResults.value = attackSession.results;
+    } else {
+      void backgroundAttackService.stopBackgroundAttack();
+    }
+  });
+};
+
+const consumePendingAttackNavigation = async () => {
+  const attackSessionId = storageService.get<string>(
+    PENDING_ATTACK_SESSION_KEY,
+  );
+  if (attackSessionId !== undefined && attackSessionId !== "") {
+    try {
+      await storageService.remove(PENDING_ATTACK_SESSION_KEY);
+    } catch (error) {
+      console.error(
+        `Failed to clear pending attack session: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+
+    await nextTick();
+    if (
+      attackSessions.value.some((session) => session.id === attackSessionId)
+    ) {
+      await selectAttackSession(attackSessionId);
+      sdk.window.showToast("Navigated to attack session", {
+        variant: "success",
+      });
+    }
+  }
+
+  const requestId = storageService.get<string>(PENDING_ATTACK_REQUEST_KEY);
+  if (requestId !== undefined && requestId !== "") {
+    await handleContextAttack({ detail: { requestId } } as CustomEvent);
+  }
+};
+
+const refreshAttackPage = async () => {
+  await loadSessions();
+  loadAttackSessions();
+  await consumePendingAttackNavigation();
+  restoreBackgroundAttack();
+};
+
 onMounted(async () => {
   window.addEventListener(
     "graphql-analyzer-context-attack",
@@ -1519,116 +1608,32 @@ onMounted(async () => {
     handleAttackComplete as unknown as EventListener,
   );
 
-  await loadSessions();
-  loadAttackSessions();
-
-  const attackSessionId = storageService.get<string>(
-    "graphql-analyzer-navigate-to-attack",
-  );
-  if (
-    attackSessionId !== undefined &&
-    attackSessionId !== null &&
-    attackSessionId !== ""
-  ) {
-    await storageService.remove("graphql-analyzer-navigate-to-attack");
-
-    nextTick(() => {
-      if (attackSessions.value.some((s) => s.id === attackSessionId)) {
-        selectAttackSession(attackSessionId);
-        sdk.window.showToast("Navigated to attack session", {
-          variant: "success",
-        });
-      }
-    });
+  try {
+    await refreshAttackPage();
+  } finally {
+    hasCompletedInitialMount = true;
   }
+});
 
-  const storedRequestId = storageService.get<string>(
-    "graphql-analyzer-context-attack-request-id",
-  );
-  if (
-    storedRequestId !== undefined &&
-    storedRequestId !== null &&
-    storedRequestId !== ""
-  ) {
-    const requestInfoResult = await sdk.backend.getRequestInfo(storedRequestId);
-    if (requestInfoResult.kind === "Ok") {
-      selectedRequest.value = {
-        id: storedRequestId,
-        host: requestInfoResult.value.host,
-        port: requestInfoResult.value.port,
-        path: requestInfoResult.value.path,
-        url: requestInfoResult.value.url,
-        method: requestInfoResult.value.method,
-      };
-    } else {
-      selectedRequest.value = { id: storedRequestId };
-    }
-    useSelectedRequest.value = true;
-    useCustomUrl.value = false;
-    selectedSessionId.value = undefined;
-
-    await storageService.remove("graphql-analyzer-context-attack-request-id");
-
-    await createNewAttackSession(false);
-  }
-
-  if (backgroundAttackService.hasBackgroundAttack()) {
-    const attackInfo = backgroundAttackService.getBackgroundAttackInfo();
-    if (attackInfo) {
-      nextTick(() => {
-        const attackSession = attackSessions.value.find(
-          (s) =>
-            s.status === "running" &&
-            s.createdAt.getTime() >=
-              new Date(Date.now() - 5 * 60 * 1000).getTime(),
-        );
-
-        if (attackSession) {
-          isAttacking.value = true;
-          currentAttackSessionId.value = attackInfo.sessionId;
-          currentActiveAttackId.value = attackSession.id;
-          selectedAttackSessionId.value = attackSession.id;
-
-          attackResults.value = attackSession.results;
-        } else {
-          backgroundAttackService.stopBackgroundAttack();
-        }
-      });
-    }
-  }
-
-  const eventCleanup = () => {
-    window.removeEventListener(
-      "graphql-analyzer-context-attack",
-      handleContextAttack as unknown as EventListener,
-    );
-    window.removeEventListener(
-      "graphql-analyzer-attack-progress",
-      handleAttackProgress as unknown as EventListener,
-    );
-    window.removeEventListener(
-      "graphql-analyzer-attack-complete",
-      handleAttackComplete as unknown as EventListener,
-    );
-  };
-
-  type WindowWithCleanup = Window & {
-    eventCleanup?: () => void;
-  };
-  (window as WindowWithCleanup).eventCleanup = eventCleanup;
+onActivated(async () => {
+  if (!hasCompletedInitialMount) return;
+  await refreshAttackPage();
 });
 
 onUnmounted(() => {
   stopAttackPolling();
-
-  type WindowWithCleanup = Window & {
-    eventCleanup?: () => void;
-  };
-  const windowWithCleanup = window as WindowWithCleanup;
-  if (windowWithCleanup.eventCleanup !== undefined) {
-    windowWithCleanup.eventCleanup();
-    delete windowWithCleanup.eventCleanup;
-  }
+  window.removeEventListener(
+    "graphql-analyzer-context-attack",
+    handleContextAttack as unknown as EventListener,
+  );
+  window.removeEventListener(
+    "graphql-analyzer-attack-progress",
+    handleAttackProgress as unknown as EventListener,
+  );
+  window.removeEventListener(
+    "graphql-analyzer-attack-complete",
+    handleAttackComplete as unknown as EventListener,
+  );
 
   if (requestEditor.value) {
     requestEditor.value.destroy?.();

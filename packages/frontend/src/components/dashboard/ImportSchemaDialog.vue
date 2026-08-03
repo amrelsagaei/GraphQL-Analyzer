@@ -93,6 +93,9 @@ const handleImport = async () => {
   isImporting.value = true;
   try {
     if (await props.importFile(selectedFile.value)) isVisible.value = false;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown error";
+    sdk.window.showToast(`Import failed: ${message}`, { variant: "error" });
   } finally {
     isImporting.value = false;
   }
