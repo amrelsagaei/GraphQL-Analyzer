@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
+import { onActivated, onMounted, ref } from "vue";
 
 import Header from "./Header.vue";
 import HeadersForm from "./HeadersForm.vue";
@@ -38,17 +38,11 @@ const { importSchemaFile } = useSchemaImport(
 
 const showImportDialog = ref(false);
 
-const handleImport = async (data: {
-  fileContent: string;
-  fileName: string;
-}) => {
-  const success = await importSchemaFile(data.fileContent, data.fileName);
-  if (success) {
-    showImportDialog.value = false;
-  }
-};
-
 onMounted(() => {
+  loadRecentSessions();
+});
+
+onActivated(() => {
   loadRecentSessions();
 });
 </script>
@@ -88,7 +82,7 @@ onMounted(() => {
 
     <ImportSchemaDialog
       v-model:visible="showImportDialog"
-      @import="handleImport"
+      :import-file="importSchemaFile"
     />
   </div>
 </template>
