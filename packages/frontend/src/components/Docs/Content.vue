@@ -45,45 +45,101 @@ const copyTwitter = () => {
     <section id="getting-started">
       <h2 class="text-2xl font-semibold mb-4">Getting Started</h2>
       <p class="text-surface-300 leading-relaxed mb-4">
-        To get started with GraphQL Analyzer, you have two main paths depending
-        on your goal:
+        Start by scanning a GraphQL request or endpoint, importing an existing
+        introspection result, or opening an endpoint directly in the Attacks
+        tab.
       </p>
 
       <div class="space-y-4">
         <div class="border border-surface-700 rounded p-4">
-          <h3 class="text-lg font-semibold mb-3">
-            Option 1: Schema Discovery (Explorer)
-          </h3>
+          <h3 class="text-lg font-semibold mb-3">Discover a Live Schema</h3>
           <p class="text-surface-300 leading-relaxed mb-3">
-            If you want to explore and understand a GraphQL schema:
+            Scan an existing request or enter an endpoint manually:
           </p>
           <ol class="list-decimal list-inside space-y-2 text-surface-300 ml-4">
-            <li>Right-click on any request in Caido's HTTP History</li>
-            <li>Select "Scan GraphQL Endpoint" from the context menu</li>
             <li>
-              Navigate to the Explorer tab to browse the discovered schema
+              Right-click a GraphQL request and select
+              <strong>Scan GraphQL Endpoint</strong>, or enter its URL and
+              headers on the Dashboard
+            </li>
+            <li>Wait for the introspection scan to finish</li>
+            <li>
+              Browse the queries, mutations, subscriptions, types, enums, and
+              points of interest in Explorer
             </li>
             <li>Use the Voyager tab to visualize schema relationships</li>
           </ol>
         </div>
 
         <div class="border border-surface-700 rounded p-4">
-          <h3 class="text-lg font-semibold mb-3">
-            Option 2: Security Testing (Attacks)
-          </h3>
+          <h3 class="text-lg font-semibold mb-3">Import a Saved Schema</h3>
           <p class="text-surface-300 leading-relaxed mb-3">
-            If you want to test GraphQL endpoints for security vulnerabilities:
+            If you already have a GraphQL introspection response, select
+            <strong>Import Schema</strong> on the Dashboard and choose or drop
+            the JSON file. Imported schemas are available in Explorer and
+            Voyager without contacting an endpoint.
+          </p>
+        </div>
+
+        <div class="border border-surface-700 rounded p-4">
+          <h3 class="text-lg font-semibold mb-3">Run Security Tests</h3>
+          <p class="text-surface-300 leading-relaxed mb-3">
+            To test a GraphQL endpoint for security vulnerabilities:
           </p>
           <ol class="list-decimal list-inside space-y-2 text-surface-300 ml-4">
-            <li>Right-click on any request in Caido's HTTP History</li>
-            <li>Select "Attack GraphQL Endpoint" from the context menu</li>
+            <li>
+              Right-click a request and select
+              <strong>Attack GraphQL Endpoint</strong>
+            </li>
             <li>Configure your attack parameters in the Attacks tab</li>
             <li>Review findings and export results to Caido Replay</li>
           </ol>
           <p class="text-surface-300 text-sm mt-3">
-            You can also manually scan URLs using the Dashboard's scan form, or
-            work with previously discovered sessions across all tabs.
+            You can also target a custom URL or a previously scanned session
+            from the Attacks tab.
           </p>
+        </div>
+      </div>
+    </section>
+
+    <section id="graphql-view-mode">
+      <h2 class="text-2xl font-semibold mb-4">GraphQL View Mode</h2>
+      <p class="text-surface-300 leading-relaxed mb-6">
+        GraphQL Analyzer adds a GraphQL view mode to supported Caido request
+        editors. It separates the operation into Query, Variables, and Request
+        Info tabs so the request is easier to inspect and edit.
+      </p>
+
+      <div class="space-y-4">
+        <div class="border border-surface-700 rounded p-4">
+          <h3 class="text-lg font-semibold mb-2">Add an Introspection Query</h3>
+          <p class="text-surface-300 leading-relaxed mb-3">
+            In an editable Replay request, click the
+            <strong>magic-wand icon</strong> with the
+            <strong>Add introspection query</strong> tooltip. The plugin fills
+            the Query tab with the standard introspection operation, sets the
+            operation name, and resets Variables to an empty object. Send the
+            edited request from Replay to retrieve the schema.
+          </p>
+          <p class="text-surface-300 text-sm">
+            The wand is only shown when the current request is editable. It does
+            not appear in read-only request views or for persisted queries that
+            do not include their operation text.
+          </p>
+        </div>
+
+        <div class="border border-surface-700 rounded p-4">
+          <h3 class="text-lg font-semibold mb-2">View Mode Actions</h3>
+          <ul class="list-disc list-inside space-y-2 text-surface-300 ml-4">
+            <li><strong>Copy:</strong> Copy the current GraphQL query</li>
+            <li>
+              <strong>Shield:</strong> Open the request in the Attacks tab
+            </li>
+            <li>
+              <strong>Send to Scanner:</strong> Scan the current request and add
+              its introspection schema to Explorer
+            </li>
+          </ul>
         </div>
       </div>
     </section>
@@ -91,8 +147,8 @@ const copyTwitter = () => {
     <section id="schema-discovery">
       <h2 class="text-2xl font-semibold mb-4">Schema Discovery</h2>
       <p class="text-surface-300 leading-relaxed mb-6">
-        The Explorer tab is your main workspace for GraphQL schema discovery and
-        analysis. Here's how to make the most of it:
+        Successful scans and imports create sessions in Explorer, where you can
+        inspect the schema and generate operations for individual fields.
       </p>
 
       <div class="space-y-4">
@@ -111,18 +167,71 @@ const copyTwitter = () => {
         </div>
 
         <div class="border border-surface-700 rounded p-4">
+          <h3 class="text-lg font-semibold mb-2">
+            Importing Introspection JSON
+          </h3>
+          <ol class="list-decimal list-inside space-y-2 text-surface-300 ml-4">
+            <li>Select <strong>Import Schema</strong> on the Dashboard</li>
+            <li>Browse for a JSON file or drag it into the upload area</li>
+            <li>
+              Select <strong>Import</strong> and wait for processing to finish
+            </li>
+            <li>Open the imported session in Explorer or Voyager</li>
+          </ol>
+          <p class="text-surface-300 text-sm mt-3">
+            Supported files include a complete GraphQL response shaped as
+            <code>{ data: { __schema: ... } }</code>, an object containing
+            <code>{ __schema: ... }</code>, or the direct introspection schema
+            object containing <code>types</code>.
+          </p>
+          <p class="text-surface-300 text-sm mt-3">
+            Imported schemas have no originating HTTP request. You can explore,
+            copy, and visualize them, but the Send to Replay and Send to
+            Attacker actions remain disabled.
+          </p>
+        </div>
+
+        <div class="border border-surface-700 rounded p-4">
+          <h3 class="text-lg font-semibold mb-2">Explorer Actions</h3>
+          <p class="text-surface-300 leading-relaxed mb-3">
+            Select a query, mutation, or subscription in the schema tree to
+            generate an operation. Required arguments are added as variable
+            placeholders, and the maximum generated nesting depth can be changed
+            in Settings.
+          </p>
+          <ul class="list-disc list-inside space-y-2 text-surface-300 ml-4">
+            <li>
+              <strong>Paper-plane icon — Send to Replay:</strong> Create a
+              Replay session from the original scanned request with its body
+              replaced by the generated operation and variables
+            </li>
+            <li>
+              <strong>Shield icon — Send to Attacker:</strong> Open the source
+              request in the Attacks tab
+            </li>
+            <li>
+              <strong>Diagram icon — View in Voyager:</strong> Open the selected
+              schema as an interactive graph
+            </li>
+            <li>
+              <strong>Copy icon:</strong> Copy the displayed operation or data
+            </li>
+          </ul>
+        </div>
+
+        <div class="border border-surface-700 rounded p-4">
           <h3 class="text-lg font-semibold mb-2">Session Management</h3>
           <p class="text-surface-300 leading-relaxed mb-3">
             Each discovered endpoint creates a session tab that you can:
           </p>
           <ul class="list-disc list-inside space-y-1 text-surface-300 ml-4">
-            <li>Rename by double-clicking the tab name</li>
+            <li>Rename by double-clicking or right-clicking the tab name</li>
             <li>Delete by right-clicking and selecting delete</li>
-            <li>Switch between to compare different schemas</li>
+            <li>Switch between sessions to compare different schemas</li>
           </ul>
           <p class="text-surface-300 text-sm mt-3">
-            Sessions are automatically saved and restored when you restart
-            Caido, so your work is never lost.
+            Sessions are saved in plugin storage and restored when Caido
+            restarts.
           </p>
         </div>
       </div>
@@ -144,8 +253,12 @@ const copyTwitter = () => {
           <ul class="list-disc list-inside space-y-1 text-surface-300 ml-4">
             <li>Zoom in and out to focus on specific areas</li>
             <li>Pan around to explore large schemas</li>
-            <li>Click on type nodes to see detailed information</li>
-            <li>Follow connections to understand data flow</li>
+            <li>Search and focus nodes from the schema navigation sidebar</li>
+            <li>Use the minimap to move quickly across a large graph</li>
+            <li>
+              Click a node to highlight its parent chain and related connections
+            </li>
+            <li>Hover over a node to see its type and field count</li>
           </ul>
         </div>
 
@@ -157,10 +270,10 @@ const copyTwitter = () => {
           <ul class="list-disc list-inside space-y-1 text-surface-300 ml-4">
             <li>
               Types as nodes with different colors for queries, mutations,
-              objects
+              subscriptions, objects, and enums
             </li>
             <li>Relationships as connecting lines between types</li>
-            <li>Field details when you hover over or click nodes</li>
+            <li>Field names and return types when zoomed in</li>
           </ul>
           <p class="text-surface-300 text-sm mt-3">
             You must have at least one session in Explorer before using Voyager.
@@ -260,8 +373,8 @@ const copyTwitter = () => {
               findings database
             </li>
             <li>
-              <strong>View Details:</strong> Examine request/response data and
-              payloads
+              <strong>Select a result row:</strong> Examine its payload,
+              response, and finding details
             </li>
           </ul>
         </div>
@@ -284,7 +397,7 @@ const copyTwitter = () => {
           <ul class="list-disc list-inside space-y-1 text-surface-300 ml-4">
             <li>Quick scan to Explorer for schema discovery</li>
             <li>Direct attack launch with pre-filled request data</li>
-            <li>Automatic endpoint detection and URL construction</li>
+            <li>GraphQL request view mode across supported Caido tools</li>
           </ul>
         </div>
 
@@ -308,7 +421,12 @@ const copyTwitter = () => {
           </p>
           <ul class="list-disc list-inside space-y-1 text-surface-300 ml-4">
             <li>Export findings to Caido's findings system</li>
-            <li>Send requests to Replay for manual testing</li>
+            <li>
+              Send generated Explorer operations and attack requests to Replay
+            </li>
+            <li>
+              Import saved introspection JSON without contacting an endpoint
+            </li>
             <li>Custom header support for authentication</li>
             <li>Background processing without blocking the UI</li>
           </ul>

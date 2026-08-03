@@ -2,6 +2,7 @@ import * as d3 from "d3";
 import type { Ref } from "vue";
 
 import type { D3Node } from "./types";
+import { getGraphBounds } from "./types";
 
 export function useVoyagerZoom(
   voyagerContainer: Ref<HTMLDivElement | undefined>,
@@ -50,13 +51,9 @@ export function useVoyagerZoom(
     const { nodes } = cachedD3Data.value;
     if (nodes.length === 0) return;
 
-    const minX = Math.min(...nodes.map((n: D3Node) => n.x));
-    const maxX = Math.max(...nodes.map((n: D3Node) => n.x + n.width));
-    const minY = Math.min(...nodes.map((n: D3Node) => n.y));
-    const maxY = Math.max(...nodes.map((n: D3Node) => n.y + n.height));
-
-    const contentWidth = maxX - minX;
-    const contentHeight = maxY - minY;
+    const bounds = getGraphBounds(nodes);
+    const contentWidth = bounds.width;
+    const contentHeight = bounds.height;
 
     const containerRect = voyagerContainer.value.getBoundingClientRect();
     const padding = 50;
@@ -67,8 +64,8 @@ export function useVoyagerZoom(
 
     const centerX = containerRect.width / 2;
     const centerY = containerRect.height / 2;
-    const contentCenterX = (minX + maxX) / 2;
-    const contentCenterY = (minY + maxY) / 2;
+    const contentCenterX = bounds.x + bounds.width / 2;
+    const contentCenterY = bounds.y + bounds.height / 2;
 
     const translateX = centerX - contentCenterX * scale;
     const translateY = centerY - contentCenterY * scale;

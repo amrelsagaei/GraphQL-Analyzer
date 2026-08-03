@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
 
+import { minimalIntrospectionSchema } from "../../tests/fixtures/minimalSchema";
+
 import {
   parseIntrospectionResponseBody,
   parseQueryResponseBody,
   unwrapBatchedResponse,
 } from "./responseParser";
-import { minimalIntrospectionSchema } from "./schemaImporter/fixtures/minimalSchema";
 
 describe("unwrapBatchedResponse", () => {
   it("returns the first element when given an array", () => {
@@ -43,8 +44,8 @@ describe("parseIntrospectionResponseBody", () => {
     expect(result.kind).toBe("Ok");
     if (result.kind === "Ok") {
       expect(result.value.supportsIntrospection).toBe(true);
-      expect(result.value.schema).toBeDefined();
-      expect(result.value.schema?.queries.length).toBeGreaterThan(0);
+      expect(result.value.introspection).toBeDefined();
+      expect(result.value.introspection?.types.length).toBeGreaterThan(0);
     }
   });
 
@@ -53,8 +54,8 @@ describe("parseIntrospectionResponseBody", () => {
     expect(result.kind).toBe("Ok");
     if (result.kind === "Ok") {
       expect(result.value.supportsIntrospection).toBe(true);
-      expect(result.value.schema).toBeDefined();
-      expect(result.value.schema?.queries.length).toBeGreaterThan(0);
+      expect(result.value.introspection).toBeDefined();
+      expect(result.value.introspection?.types.length).toBeGreaterThan(0);
     }
   });
 
@@ -66,14 +67,8 @@ describe("parseIntrospectionResponseBody", () => {
     expect(batchedResult.kind).toBe("Ok");
 
     if (standardResult.kind === "Ok" && batchedResult.kind === "Ok") {
-      expect(batchedResult.value.schema?.queries).toEqual(
-        standardResult.value.schema?.queries,
-      );
-      expect(batchedResult.value.schema?.mutations).toEqual(
-        standardResult.value.schema?.mutations,
-      );
-      expect(batchedResult.value.schema?.types).toEqual(
-        standardResult.value.schema?.types,
+      expect(batchedResult.value.introspection).toEqual(
+        standardResult.value.introspection,
       );
     }
   });

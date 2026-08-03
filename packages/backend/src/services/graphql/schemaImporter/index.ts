@@ -1,13 +1,11 @@
-import type { Result, SchemaImportResult } from "shared";
-
-import { parseIntrospectionResult } from "../parser";
+import type { IntrospectionSchema, Result } from "shared";
 
 import { detectSchemaFormat } from "./detection";
 import { parseJsonContent } from "./jsonParser";
 
 export function parseSchemaFromFileContent(
   content: string,
-): Result<SchemaImportResult> {
+): Result<{ introspection: IntrospectionSchema; format: string }> {
   const jsonResult = parseJsonContent(content);
   if (jsonResult.kind === "Error") {
     return jsonResult;
@@ -22,20 +20,11 @@ export function parseSchemaFromFileContent(
     };
   }
 
-  try {
-    const schema = parseIntrospectionResult(detection.schema);
-    return {
-      kind: "Ok",
-      value: {
-        schema,
-        format: detection.format,
-      },
-    };
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    return {
-      kind: "Error",
-      error: `Failed to parse introspection schema: ${message}`,
-    };
-  }
+  return {
+    kind: "Ok",
+    value: {
+      introspection: detection.schema,
+      format: detection.format,
+    },
+  };
 }

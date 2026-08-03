@@ -8,10 +8,12 @@ import { Docs } from "@/components/Docs";
 import { Explorer } from "@/components/Explorer";
 import { Voyager } from "@/components/Voyager";
 import { useSDK } from "@/plugins/sdk";
+import { createStorageService } from "@/services/storage";
 
 type PageType = "Dashboard" | "Explorer" | "Voyager" | "Attacks" | "Docs";
 
 const sdk = useSDK();
+const storage = createStorageService(sdk);
 const currentPage = ref<PageType>("Dashboard");
 
 const component = computed(() => {
@@ -44,32 +46,25 @@ const handleNavigationEvent = (event: CustomEvent) => {
 
 const checkPendingNavigation = async () => {
   try {
-    const storage = sdk.storage.get() as
-      | {
-          "graphql-analyzer-navigate-to"?: string;
-          "graphql-analyzer-navigate-timestamp"?: string;
-        }
-      | undefined;
+    const target = storage.get<string>("graphql-analyzer-navigate-to");
+    const timestamp = storage.get<string>(
+      "graphql-analyzer-navigate-timestamp",
+    );
 
-    if (
-      storage?.["graphql-analyzer-navigate-to"] !== undefined &&
-      storage["graphql-analyzer-navigate-timestamp"] !== undefined
-    ) {
+    if (target !== undefined && timestamp !== undefined) {
       const now = Date.now();
-      const parsedTimestamp = parseInt(
-        storage["graphql-analyzer-navigate-timestamp"],
-      );
+      const parsedTimestamp = parseInt(timestamp);
       const shouldNavigate =
         !Number.isNaN(parsedTimestamp) && now - parsedTimestamp < 5000;
 
       if (shouldNavigate) {
-        currentPage.value = storage["graphql-analyzer-navigate-to"] as PageType;
+        currentPage.value = target as PageType;
       }
 
-      const updatedStorage = { ...storage };
-      delete updatedStorage["graphql-analyzer-navigate-to"];
-      delete updatedStorage["graphql-analyzer-navigate-timestamp"];
-      await sdk.storage.set(updatedStorage as unknown as Record<string, never>);
+      await storage.removeMultiple([
+        "graphql-analyzer-navigate-to",
+        "graphql-analyzer-navigate-timestamp",
+      ]);
     }
   } catch {
     // Ignore navigation errors
@@ -122,7 +117,9 @@ onUnmounted(() => {
     <Navigation :current-page="currentPage" @page-change="handlePageChange" />
 
     <div class="flex-1 min-h-0">
-      <component :is="component" :navigate-to="handlePageChange" />
+      <KeepAlive>
+        <component :is="component" :navigate-to="handlePageChange" />
+      </KeepAlive>
     </div>
   </div>
 </template>

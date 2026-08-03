@@ -2,6 +2,8 @@ changelog:
   categories:
     - title: Features
       labels: ["enhancement"]
+    - title: Performance
+      labels: ["performance"]
     - title: Fixes
       labels: ["bug"]
     - title: Other Changes

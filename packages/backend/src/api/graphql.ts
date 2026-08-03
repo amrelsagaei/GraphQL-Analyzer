@@ -1,25 +1,33 @@
+import { readFile } from "fs/promises";
+
 import type { SDK } from "caido:plugin";
-import type { GraphQLSchema, Result, SchemaImportResult } from "shared";
+import type { Result, SchemaDiscoveryResult, SchemaImportResult } from "shared";
 
 import { GraphQLService } from "../services/graphql";
+import { encodeIntrospectionSchema } from "../services/graphql/schemaEncoding";
 import { parseSchemaFromFileContent } from "../services/graphql/schemaImporter";
 
 export async function testGraphQLEndpoint(
   sdk: SDK,
   url: string,
   customHeaders?: Record<string, string>,
-): Promise<Result<{ supportsIntrospection: boolean; schema?: GraphQLSchema }>> {
+): Promise<Result<SchemaDiscoveryResult>> {
   const graphqlService = new GraphQLService(sdk);
-  return graphqlService.testEndpoint(url, customHeaders);
+  const result = await graphqlService.testEndpoint(url, customHeaders);
+  return encodeDiscoveryResult(result);
 }
 
 export async function testGraphQLEndpointFromRequest(
   sdk: SDK,
   requestId: string,
   customHeaders?: Record<string, string>,
-): Promise<Result<{ supportsIntrospection: boolean; schema?: GraphQLSchema }>> {
+): Promise<Result<SchemaDiscoveryResult>> {
   const graphqlService = new GraphQLService(sdk);
-  return graphqlService.testEndpointFromRequest(requestId, customHeaders);
+  const result = await graphqlService.testEndpointFromRequest(
+    requestId,
+    customHeaders,
+  );
+  return encodeDiscoveryResult(result);
 }
 
 export async function executeGraphQLQuery(
@@ -78,11 +86,21 @@ export async function getRequestInfo(
   }
 }
 
-export function importSchemaFromFile(
+export async function importSchemaFromFile(
   _sdk: SDK,
-  fileContent: string,
+  filePath: string,
   fileName: string,
-): Result<SchemaImportResult & { fileName: string }> {
+): Promise<Result<SchemaImportResult & { fileName: string }>> {
+  let fileContent: string;
+  try {
+    fileContent = await readFile(filePath, "utf8");
+  } catch (error) {
+    return {
+      kind: "Error",
+      error: `Failed to read uploaded schema: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+
   const result = parseSchemaFromFileContent(fileContent);
 
   if (result.kind === "Error") {
@@ -92,8 +110,32 @@ export function importSchemaFromFile(
   return {
     kind: "Ok",
     value: {
-      ...result.value,
+      schema: encodeIntrospectionSchema(result.value.introspection),
+      format: result.value.format,
       fileName,
+    },
+  };
+}
+
+function encodeDiscoveryResult(
+  result: Awaited<ReturnType<GraphQLService["testEndpoint"]>>,
+): Result<SchemaDiscoveryResult> {
+  if (result.kind === "Error") return result;
+  if (!result.value.supportsIntrospection) {
+    return { kind: "Ok", value: { supportsIntrospection: false } };
+  }
+  if (result.value.introspection === undefined) {
+    return {
+      kind: "Error",
+      error: "Introspection succeeded without returning a schema",
+    };
+  }
+
+  return {
+    kind: "Ok",
+    value: {
+      supportsIntrospection: true,
+      schema: encodeIntrospectionSchema(result.value.introspection),
     },
   };
 }

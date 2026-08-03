@@ -1,21 +1,12 @@
-import type {
-  DashboardActivity,
-  ExplorerSession,
-  Result,
-  SchemaImportResult,
-} from "shared";
+import type { DashboardActivity, Result, SchemaImportResult } from "shared";
 
 import { useSDK } from "@/plugins/sdk";
+import { createExplorerSessionStore } from "@/services/explorerSessions";
+import { createStorageService } from "@/services/storage";
 
 function generateId(): string {
   return Date.now().toString(36) + Math.random().toString(36).substring(2);
 }
-
-type StorageData = {
-  explorerSessions?: ExplorerSession[];
-  selectedExplorerSessionId?: string;
-  dashboardActivities?: DashboardActivity[];
-};
 
 export function useSchemaImport(
   navigateTo?: (
@@ -24,14 +15,16 @@ export function useSchemaImport(
   onSessionsChanged?: () => void,
 ) {
   const sdk = useSDK();
+  const sessionStore = createExplorerSessionStore(sdk);
+  const storage = createStorageService(sdk);
 
-  const importSchemaFile = async (
-    fileContent: string,
-    fileName: string,
-  ): Promise<boolean> => {
+  const importSchemaFile = async (file: File): Promise<boolean> => {
+    let hostedFile: Awaited<ReturnType<typeof sdk.files.create>> | undefined;
+
     try {
+      hostedFile = await sdk.files.create(file);
       const result: Result<SchemaImportResult & { fileName: string }> =
-        await sdk.backend.importSchemaFromFile(fileContent, fileName);
+        await sdk.backend.importSchemaFromFile(hostedFile.path, file.name);
 
       if (result.kind === "Error") {
         sdk.window.showToast(`Import failed: ${result.error}`, {
@@ -40,83 +33,67 @@ export function useSchemaImport(
         return false;
       }
 
-      const currentStorage: StorageData =
-        (sdk.storage.get() as StorageData | undefined) ?? {};
-
-      if (
-        currentStorage.explorerSessions === undefined ||
-        !Array.isArray(currentStorage.explorerSessions)
-      ) {
-        currentStorage.explorerSessions = [];
-      }
-
-      if (
-        currentStorage.dashboardActivities === undefined ||
-        !Array.isArray(currentStorage.dashboardActivities)
-      ) {
-        currentStorage.dashboardActivities = [];
-      }
-
-      const displayName = fileName.replace(/\.(json|graphql|gql)$/i, "");
-
-      const sessionData: ExplorerSession = {
+      const displayName = file.name.replace(/\.(json|graphql|gql)$/i, "");
+      const session = await sessionStore.createSession({
         id: generateId(),
         title: displayName,
-        url: `file://${fileName}`,
-        schema: result.value.schema,
+        url: `file://${file.name}`,
+        schemaPayload: result.value.schema,
         supportsIntrospection: true,
         createdAt: new Date(),
         status: "success",
         sourceType: "file-import",
-      };
+      });
+      await sessionStore.add(session);
 
-      currentStorage.explorerSessions.push(sessionData);
-      currentStorage.selectedExplorerSessionId = sessionData.id;
-
-      const activityData: DashboardActivity = {
+      const activities = storage.get<DashboardActivity[]>(
+        "dashboardActivities",
+      );
+      const activity: DashboardActivity = {
         id: generateId(),
         title: `Schema import: ${displayName}`,
-        url: `file://${fileName}`,
-        description: `Imported from ${fileName} (${result.value.format})`,
+        url: `file://${file.name}`,
+        description: `Imported from ${file.name} (${result.value.format})`,
         createdAt: new Date(),
         status: "success",
         type: "scan",
       };
-
-      currentStorage.dashboardActivities.unshift(activityData);
-
-      if (currentStorage.dashboardActivities.length > 20) {
-        currentStorage.dashboardActivities =
-          currentStorage.dashboardActivities.slice(0, 20);
-      }
-
-      await sdk.storage.set(currentStorage as unknown as Record<string, never>);
+      await storage.set(
+        "dashboardActivities",
+        [activity, ...(Array.isArray(activities) ? activities : [])].slice(
+          0,
+          20,
+        ),
+      );
 
       onSessionsChanged?.();
-
       window.dispatchEvent(
         new CustomEvent("graphql-analyzer-sessions-updated"),
       );
-
-      sdk.window.showToast(`Schema imported successfully from "${fileName}"!`, {
-        variant: "success",
-      });
-
-      setTimeout(() => {
-        if (navigateTo !== undefined) {
-          navigateTo("Explorer");
-        }
-      }, 800);
-
+      sdk.window.showToast(
+        `Schema imported successfully from "${file.name}"!`,
+        {
+          variant: "success",
+        },
+      );
+      window.setTimeout(() => navigateTo?.("Explorer"), 800);
       return true;
-    } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : "Unknown error";
-      sdk.window.showToast(`Import failed: ${errorMsg}`, { variant: "error" });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown error";
+      sdk.window.showToast(`Import failed: ${message}`, { variant: "error" });
       return false;
+    } finally {
+      if (hostedFile !== undefined) {
+        try {
+          await sdk.files.delete(hostedFile.id);
+        } catch (error) {
+          console.error(
+            `Failed to delete temporary schema upload: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
+      }
     }
   };
 
-  return {
-    importSchemaFile,
-  };
+  return { importSchemaFile };
 }

@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 
+import { minimalIntrospectionSchema } from "../../../tests/fixtures/minimalSchema";
+
 import { detectSchemaFormat } from "./detection";
-import { minimalIntrospectionSchema } from "./fixtures/minimalSchema";
 
 describe("detectSchemaFormat", () => {
   it("detects wrapped introspection format: { data: { __schema: ... } }", () => {

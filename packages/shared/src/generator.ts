@@ -1,8 +1,20 @@
 import type {
   GraphQLField,
-  IntrospectionType,
+  GraphQLSchema,
+  GraphQLType,
   IntrospectionTypeRef,
 } from "./index";
+
+const BUILT_IN_SCALARS = new Set(["String", "Int", "Float", "Boolean", "ID"]);
+const MAX_GENERATED_SELECTIONS = 2_000;
+
+type SelectableType = Pick<GraphQLType, "name" | "kind" | "fields">;
+
+type GenerationContext = {
+  typeByName: Map<string, SelectableType>;
+  leafTypes: Set<string>;
+  remainingSelections: number;
+};
 
 export const formatType = (type: IntrospectionTypeRef): string => {
   if (type.kind === "NON_NULL" && type.ofType) {
@@ -15,146 +27,136 @@ export const formatType = (type: IntrospectionTypeRef): string => {
 };
 
 export function generateGraphQLQuery(
-  field: GraphQLField & {
-    rawType?: IntrospectionTypeRef;
-    type?: IntrospectionTypeRef | string;
-  },
+  field: GraphQLField,
   operationType: "query" | "mutation" | "subscription",
-  allTypes: IntrospectionType[],
+  schema: GraphQLSchema,
   maxDepth: number = 5,
 ): string {
-  const capitalize = (str: string) =>
-    str.charAt(0).toUpperCase() + str.slice(1);
-
-  const args = formatFieldArguments(field.args ?? []);
-  const queryArgs = formatQueryArguments(field.args ?? []);
-
-  const typeName = getTypeName(field.rawType ?? field.type ?? "");
-  const returnType =
-    typeName !== undefined
-      ? allTypes.find((t) => t.name === typeName)
-      : undefined;
-  const isLeaf = returnType?.kind === "SCALAR" || returnType?.kind === "ENUM";
-
-  const lines: string[] = [
-    `${operationType} ${capitalize(field.name)}${args} {`,
-  ];
+  const context = createGenerationContext(schema);
+  const operationName = capitalize(field.name);
+  const variableDefinitions = formatFieldArguments(field.args);
+  const queryArguments = formatQueryArguments(field.args);
+  const returnTypeName = getTypeName(field.type);
+  const isLeaf = context.leafTypes.has(returnTypeName);
+  const lines = [`${operationType} ${operationName}${variableDefinitions} {`];
 
   if (isLeaf) {
-    lines.push(`  ${field.name}${queryArgs}`);
+    lines.push(`  ${field.name}${queryArguments}`);
   } else {
     const nestedFields = generateNestedFields(
-      field.rawType ?? field.type,
-      allTypes,
-      maxDepth,
+      field.type,
+      context,
+      Math.max(1, maxDepth),
       2,
       new Set<string>(),
     );
-    const selection =
-      nestedFields.length > 0 ? nestedFields : ["    __typename"];
-    lines.push(`  ${field.name}${queryArgs} {`);
-    lines.push(...selection);
+
+    lines.push(`  ${field.name}${queryArguments} {`);
+    if (nestedFields.length === 0) {
+      lines.push("    __typename");
+    } else {
+      for (const line of nestedFields) lines.push(line);
+    }
     lines.push("  }");
   }
 
   lines.push("}");
-
   return lines.join("\n");
 }
 
+function createGenerationContext(schema: GraphQLSchema): GenerationContext {
+  const typeByName = new Map<string, SelectableType>();
+  for (const type of schema.types) typeByName.set(type.name, type);
+  for (const type of schema.interfaces) {
+    typeByName.set(type.name, {
+      name: type.name,
+      kind: "INTERFACE",
+      fields: type.fields,
+    });
+  }
+
+  const leafTypes = new Set(BUILT_IN_SCALARS);
+  for (const scalar of schema.scalars) leafTypes.add(scalar.name);
+  for (const enumType of schema.enums) leafTypes.add(enumType.name);
+
+  return {
+    typeByName,
+    leafTypes,
+    remainingSelections: MAX_GENERATED_SELECTIONS,
+  };
+}
+
 function generateNestedFields(
-  typeRef: IntrospectionTypeRef | string | undefined,
-  allTypes: IntrospectionType[],
+  typeRef: string,
+  context: GenerationContext,
   maxDepth: number,
   currentDepth: number,
   visitedTypes: Set<string>,
 ): string[] {
-  if (currentDepth > maxDepth || typeRef === undefined) return [];
+  if (currentDepth > maxDepth || context.remainingSelections <= 0) return [];
 
   const typeName = getTypeName(typeRef);
-  if (typeName === undefined) return [];
+  if (typeName === "" || visitedTypes.has(typeName)) return [];
 
-  if (visitedTypes.has(typeName)) return [];
+  const type = context.typeByName.get(typeName);
+  if (type?.fields === undefined) return [];
 
   visitedTypes.add(typeName);
-
-  const type = allTypes.find((t) => t.name === typeName);
-  if (type === undefined || type.fields === undefined) return [];
-
   const lines: string[] = [];
   const indent = "  ".repeat(currentDepth);
 
   for (const field of type.fields) {
-    if (field.isDeprecated === true) continue;
-
-    if (field.args !== undefined && field.args.length > 0) {
-      const requiredArgs = field.args.filter(
-        (arg) => arg.type.kind === "NON_NULL",
-      );
-      if (requiredArgs.length > 0) continue;
-    }
+    if (context.remainingSelections <= 0) break;
+    if (field.isDeprecated === true || hasRequiredArguments(field)) continue;
 
     const fieldTypeName = getTypeName(field.type);
-    if (fieldTypeName === undefined) continue;
-    const fieldType = allTypes.find((t) => t.name === fieldTypeName);
+    if (fieldTypeName === "") continue;
 
-    if (fieldType?.kind === "SCALAR" || fieldType?.kind === "ENUM") {
+    if (context.leafTypes.has(fieldTypeName)) {
       lines.push(`${indent}${field.name}`);
-    } else if (currentDepth < maxDepth) {
-      const nestedLines = generateNestedFields(
-        field.type,
-        allTypes,
-        maxDepth,
-        currentDepth + 1,
-        new Set(visitedTypes),
-      );
-      if (nestedLines.length > 0) {
-        lines.push(`${indent}${field.name} {`);
-        lines.push(...nestedLines);
-        lines.push(`${indent}}`);
-      }
+      context.remainingSelections--;
+      continue;
     }
+
+    if (currentDepth >= maxDepth || visitedTypes.has(fieldTypeName)) continue;
+
+    const nestedLines = generateNestedFields(
+      field.type,
+      context,
+      maxDepth,
+      currentDepth + 1,
+      visitedTypes,
+    );
+    if (nestedLines.length === 0) continue;
+
+    lines.push(`${indent}${field.name} {`);
+    for (const nestedLine of nestedLines) lines.push(nestedLine);
+    lines.push(`${indent}}`);
+    context.remainingSelections--;
   }
 
+  visitedTypes.delete(typeName);
   return lines;
 }
 
-function getTypeName(type: IntrospectionTypeRef | string): string | undefined {
-  if (typeof type === "string") {
-    if (type !== "") return type;
-    return undefined;
-  }
-  if (type.name !== undefined && type.name !== null) return type.name;
-  if (type.ofType) return getTypeName(type.ofType);
-  return undefined;
+function hasRequiredArguments(field: GraphQLField): boolean {
+  return field.args.some((argument) => argument.type.endsWith("!"));
 }
 
-function formatFieldArguments(
-  args: Array<{
-    name: string;
-    rawType?: IntrospectionTypeRef;
-    type?: IntrospectionTypeRef | string;
-  }>,
-): string {
-  if (args.length === 0) return "";
-
-  const argStrings = args.map((arg) => {
-    const type = arg.rawType
-      ? formatType(arg.rawType)
-      : typeof arg.type === "string"
-        ? arg.type
-        : arg.type
-          ? formatType(arg.type)
-          : "String";
-    return `$${arg.name}: ${type}`;
-  });
-
-  return `(${argStrings.join(", ")})`;
+function getTypeName(type: string): string {
+  return type.replace(/[[\]!]/g, "");
 }
 
-function formatQueryArguments(args: Array<{ name: string }>): string {
-  if (args.length === 0) return "";
+function capitalize(value: string): string {
+  return value.charAt(0).toUpperCase() + value.slice(1);
+}
 
-  const argStrings = args.map((arg) => `${arg.name}: $${arg.name}`);
-  return `(${argStrings.join(", ")})`;
+function formatFieldArguments(args: GraphQLField["args"]): string {
+  if (args.length === 0) return "";
+  return `(${args.map((argument) => `$${argument.name}: ${argument.type}`).join(", ")})`;
+}
+
+function formatQueryArguments(args: GraphQLField["args"]): string {
+  if (args.length === 0) return "";
+  return `(${args.map((argument) => `${argument.name}: $${argument.name}`).join(", ")})`;
 }

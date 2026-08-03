@@ -9,11 +9,11 @@ defineOptions({ name: "ImportSchemaDialog" });
 
 const props = defineProps<{
   visible: boolean;
+  importFile: (file: File) => Promise<boolean>;
 }>();
 
 const emit = defineEmits<{
   (e: "update:visible", value: boolean): void;
-  (e: "import", data: { fileContent: string; fileName: string }): void;
 }>();
 
 const sdk = useSDK();
@@ -24,6 +24,7 @@ const isImporting = ref(false);
 const fileInputRef = ref<HTMLInputElement | undefined>(undefined);
 
 const triggerFileInput = () => {
+  if (isImporting.value) return;
   fileInputRef.value?.click();
 };
 
@@ -35,6 +36,7 @@ const isVisible = computed({
 const acceptedExtensions = ".json";
 
 const handleFileSelect = (event: Event) => {
+  if (isImporting.value) return;
   const input = event.target as HTMLInputElement;
   if (input.files !== null && input.files.length > 0) {
     const file = input.files[0];
@@ -46,6 +48,7 @@ const handleFileSelect = (event: Event) => {
 
 const handleDrop = (event: DragEvent) => {
   event.preventDefault();
+  if (isImporting.value) return;
   isDraggingOver.value = false;
 
   if (
@@ -61,6 +64,7 @@ const handleDrop = (event: DragEvent) => {
 
 const handleDragOver = (event: DragEvent) => {
   event.preventDefault();
+  if (isImporting.value) return;
   isDraggingOver.value = true;
 };
 
@@ -69,7 +73,9 @@ const handleDragLeave = () => {
 };
 
 const clearFile = () => {
+  if (isImporting.value) return;
   selectedFile.value = undefined;
+  if (fileInputRef.value !== undefined) fileInputRef.value.value = "";
 };
 
 const formatFileSize = (bytes: number): string => {
@@ -85,42 +91,19 @@ const handleImport = async () => {
   }
 
   isImporting.value = true;
-
   try {
-    const content = await readFileContent(selectedFile.value);
-    emit("import", {
-      fileContent: content,
-      fileName: selectedFile.value.name,
-    });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Unknown error";
-    sdk.window.showToast(`Failed to read file: ${message}`, {
-      variant: "error",
-    });
+    if (await props.importFile(selectedFile.value)) isVisible.value = false;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown error";
+    sdk.window.showToast(`Import failed: ${message}`, { variant: "error" });
   } finally {
     isImporting.value = false;
   }
 };
 
-const readFileContent = (file: File): Promise<string> => {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (typeof reader.result === "string") {
-        resolve(reader.result);
-      } else {
-        reject(new Error("Failed to read file as text"));
-      }
-    };
-    reader.onerror = () => {
-      reject(new Error("File read error"));
-    };
-    reader.readAsText(file);
-  });
-};
-
 const resetAndClose = () => {
   selectedFile.value = undefined;
+  if (fileInputRef.value !== undefined) fileInputRef.value.value = "";
   isImporting.value = false;
   isVisible.value = false;
 };
@@ -168,13 +151,16 @@ const resetAndClose = () => {
 
       <div
         :class="{
-          'border-2 border-dashed rounded-lg p-6 text-center cursor-pointer transition-all duration-200': true,
+          'border-2 border-dashed rounded-lg p-6 text-center transition-all duration-200': true,
+          'cursor-pointer': !isImporting,
+          'cursor-not-allowed opacity-60': isImporting,
           'border-primary-400 bg-primary-900/20': isDraggingOver,
           'border-green-500 bg-green-900/10':
             !isDraggingOver && selectedFile !== undefined,
           'border-surface-600 hover:border-surface-400 bg-surface-800':
             !isDraggingOver && selectedFile === undefined,
         }"
+        :aria-disabled="isImporting"
         @drop="handleDrop"
         @dragover="handleDragOver"
         @dragleave="handleDragLeave"
@@ -184,6 +170,7 @@ const resetAndClose = () => {
           ref="fileInputRef"
           type="file"
           :accept="acceptedExtensions"
+          :disabled="isImporting"
           class="hidden"
           @change="handleFileSelect"
         />
@@ -215,6 +202,7 @@ const resetAndClose = () => {
               severity="danger"
               size="small"
               text
+              :disabled="isImporting"
               @click.stop="clearFile"
             />
           </div>
@@ -251,7 +239,7 @@ const resetAndClose = () => {
         icon="fas fa-file-import"
         size="small"
         :loading="isImporting"
-        :disabled="selectedFile === undefined"
+        :disabled="isImporting || selectedFile === undefined"
         @click="handleImport"
       />
     </template>

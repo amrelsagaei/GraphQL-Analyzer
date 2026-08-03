@@ -1,5 +1,5 @@
 import type { SDK } from "caido:plugin";
-import type { GraphQLSchema, Result } from "shared";
+import type { IntrospectionSchema, Result } from "shared";
 
 import { GraphQLClient } from "./client";
 
@@ -14,7 +14,10 @@ export class GraphQLService {
     requestId: string,
     customHeaders?: Record<string, string>,
   ): Promise<
-    Result<{ supportsIntrospection: boolean; schema?: GraphQLSchema }>
+    Result<{
+      supportsIntrospection: boolean;
+      introspection?: IntrospectionSchema;
+    }>
   > {
     return this.client.testEndpointFromRequest(requestId, customHeaders);
   }
@@ -23,7 +26,10 @@ export class GraphQLService {
     url: string,
     customHeaders?: Record<string, string>,
   ): Promise<
-    Result<{ supportsIntrospection: boolean; schema?: GraphQLSchema }>
+    Result<{
+      supportsIntrospection: boolean;
+      introspection?: IntrospectionSchema;
+    }>
   > {
     return this.client.testEndpoint(url, customHeaders);
   }

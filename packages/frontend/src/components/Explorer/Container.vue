@@ -2,7 +2,7 @@
 import Card from "primevue/card";
 import Splitter from "primevue/splitter";
 import SplitterPanel from "primevue/splitterpanel";
-import { computed, nextTick, onMounted, ref, watch } from "vue";
+import { computed, nextTick, onActivated, onMounted, ref, watch } from "vue";
 
 import CodePanel from "./CodePanel.vue";
 import Header from "./Header.vue";
@@ -69,14 +69,10 @@ const onNodeSelect = (item: TreeItem<unknown>) => {
 
 const saveExplorerState = () => {
   if (selectedSessionId.value !== undefined) {
-    storageService.set(
-      `explorer-expanded-keys-${selectedSessionId.value}`,
-      Array.from(expandedKeys.value),
-    );
-    storageService.set(
-      `explorer-selected-node-${selectedSessionId.value}`,
-      selectedKey.value ?? "",
-    );
+    storageService.setDeferred(`explorer-state-${selectedSessionId.value}`, {
+      expandedKeys: Array.from(expandedKeys.value),
+      selectedKey: selectedKey.value,
+    });
   }
 };
 
@@ -88,9 +84,18 @@ const loadExplorerState = async () => {
   await nextTick();
   await nextTick();
 
-  const storedExpandedKeys = storageService.get<string[]>(
-    `explorer-expanded-keys-${selectedSessionId.value}`,
-  );
+  const state = storageService.get<{
+    expandedKeys?: string[];
+    selectedKey?: string;
+  }>(`explorer-state-${selectedSessionId.value}`) ?? {
+    expandedKeys: storageService.get<string[]>(
+      `explorer-expanded-keys-${selectedSessionId.value}`,
+    ),
+    selectedKey: storageService.get<string>(
+      `explorer-selected-node-${selectedSessionId.value}`,
+    ),
+  };
+  const storedExpandedKeys = state?.expandedKeys;
   if (storedExpandedKeys && Array.isArray(storedExpandedKeys)) {
     expandedKeys.value = new Set(storedExpandedKeys);
     await nextTick();
@@ -98,9 +103,7 @@ const loadExplorerState = async () => {
     expandedKeys.value = new Set();
   }
 
-  const storedSelectedNodeKey = storageService.get<string>(
-    `explorer-selected-node-${selectedSessionId.value}`,
-  );
+  const storedSelectedNodeKey = state?.selectedKey;
 
   if (storedSelectedNodeKey !== undefined && storedSelectedNodeKey !== "") {
     selectedKey.value = storedSelectedNodeKey;
@@ -154,6 +157,17 @@ const handleRenameSession = (sessionId: string, newName: string) => {
   renameSession(sessionId, newName);
 };
 
+const restoreExplorerPage = async () => {
+  await loadSessions();
+  if (selectedSessionId.value !== undefined) {
+    await nextTick();
+    await nextTick();
+    await loadExplorerState();
+  }
+};
+
+let hasCompletedInitialMount = false;
+
 watch(selectedSessionId, async () => {
   if (selectedSessionId.value !== undefined) {
     await nextTick();
@@ -167,12 +181,16 @@ watch(selectedSessionId, async () => {
 });
 
 onMounted(async () => {
-  loadSessions();
-  if (selectedSessionId.value !== undefined) {
-    await nextTick();
-    await nextTick();
-    await loadExplorerState();
+  try {
+    await restoreExplorerPage();
+  } finally {
+    hasCompletedInitialMount = true;
   }
+});
+
+onActivated(async () => {
+  if (!hasCompletedInitialMount) return;
+  await restoreExplorerPage();
 });
 </script>
 

@@ -1,4 +1,5 @@
 export { formatType, generateGraphQLQuery } from "./generator";
+export { generatePointsOfInterest, parseIntrospectionResult } from "./schema";
 
 export type Result<T> =
   | { kind: "Error"; error: string }
@@ -14,6 +15,10 @@ export type GraphQLSchema = {
   unions: GraphQLUnion[];
   scalars: GraphQLScalar[];
   pointsOfInterest: PointOfInterest[];
+  /**
+   * Legacy raw type data retained only while migrating sessions created before
+   * compact schema storage was introduced. New schemas do not populate it.
+   */
   allTypes?: IntrospectionType[];
 };
 
@@ -61,6 +66,7 @@ export type GraphQLField = {
   description?: string;
   args: GraphQLArg[];
   type: string;
+  isDeprecated?: boolean;
 };
 
 export type GraphQLArg = {
@@ -122,6 +128,17 @@ export type IntrospectionSchema = {
   mutationType?: { name: string };
   subscriptionType?: { name: string };
   types: IntrospectionType[];
+};
+
+export type EncodedIntrospectionSchema = {
+  encoding: "gzip-base64";
+  data: string;
+  uncompressedSize: number;
+};
+
+export type SchemaDiscoveryResult = {
+  supportsIntrospection: boolean;
+  schema?: EncodedIntrospectionSchema;
 };
 
 export type AttackType =
@@ -204,7 +221,12 @@ export type ExplorerSession = {
   id: string;
   title: string;
   url: string;
+  /** Runtime-only normalized schema. It is omitted from persisted sessions. */
   schema?: GraphQLSchema;
+  /** Canonical compressed schema used for persistence and transport. */
+  schemaPayload?: EncodedIntrospectionSchema;
+  /** Runtime-only raw introspection schema used by the JSON schema viewer. */
+  introspection?: IntrospectionSchema;
   supportsIntrospection: boolean;
   createdAt: Date;
   status: string;
@@ -213,7 +235,7 @@ export type ExplorerSession = {
 };
 
 export type SchemaImportResult = {
-  schema: GraphQLSchema;
+  schema: EncodedIntrospectionSchema;
   format: string;
 };
 

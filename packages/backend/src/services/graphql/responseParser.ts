@@ -1,10 +1,8 @@
-import type { GraphQLSchema, IntrospectionSchema, Result } from "shared";
-
-import { parseIntrospectionResult } from "./parser";
+import type { IntrospectionSchema, Result } from "shared";
 
 type IntrospectionResult = {
   supportsIntrospection: boolean;
-  schema?: GraphQLSchema;
+  introspection?: IntrospectionSchema;
 };
 
 export function unwrapBatchedResponse(parsed: unknown): unknown {
@@ -54,14 +52,14 @@ export function parseIntrospectionResponseBody(
       jsonResponse.data !== undefined &&
       (jsonResponse.data as Record<string, unknown>).__schema !== undefined
     ) {
-      const schema = parseIntrospectionResult(
-        (jsonResponse.data as Record<string, unknown>)
-          .__schema as IntrospectionSchema,
-      );
-      (
-        schema as GraphQLSchema & { rawIntrospection?: unknown }
-      ).rawIntrospection = jsonResponse.data;
-      return { kind: "Ok", value: { supportsIntrospection: true, schema } };
+      return {
+        kind: "Ok",
+        value: {
+          supportsIntrospection: true,
+          introspection: (jsonResponse.data as Record<string, unknown>)
+            .__schema as IntrospectionSchema,
+        },
+      };
     }
 
     if (jsonResponse.data !== undefined) {

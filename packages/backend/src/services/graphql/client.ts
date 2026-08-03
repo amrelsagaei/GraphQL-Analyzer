@@ -1,6 +1,6 @@
 import type { SDK } from "caido:plugin";
 import { RequestSpec } from "caido:utils";
-import type { GraphQLSchema, Result } from "shared";
+import type { IntrospectionSchema, Result } from "shared";
 import { INTROSPECTION_QUERY } from "shared";
 
 import {
@@ -20,7 +20,10 @@ export class GraphQLClient {
     requestId: string,
     customHeaders?: Record<string, string>,
   ): Promise<
-    Result<{ supportsIntrospection: boolean; schema?: GraphQLSchema }>
+    Result<{
+      supportsIntrospection: boolean;
+      introspection?: IntrospectionSchema;
+    }>
   > {
     try {
       const requestResult = await this.sdk.requests.get(requestId);
@@ -73,7 +76,7 @@ export class GraphQLClient {
           if (
             originalProcessed.kind === "Ok" &&
             originalProcessed.value.supportsIntrospection === true &&
-            originalProcessed.value.schema !== undefined
+            originalProcessed.value.introspection !== undefined
           ) {
             return originalProcessed;
           }
@@ -114,7 +117,10 @@ export class GraphQLClient {
     url: string,
     customHeaders?: Record<string, string>,
   ): Promise<
-    Result<{ supportsIntrospection: boolean; schema?: GraphQLSchema }>
+    Result<{
+      supportsIntrospection: boolean;
+      introspection?: IntrospectionSchema;
+    }>
   > {
     try {
       if (!url.startsWith("http://") && !url.startsWith("https://")) {
@@ -180,7 +186,10 @@ export class GraphQLClient {
 
   private processIntrospectionResponse(
     result: Awaited<ReturnType<typeof this.sdk.requests.send>>,
-  ): Result<{ supportsIntrospection: boolean; schema?: GraphQLSchema }> {
+  ): Result<{
+    supportsIntrospection: boolean;
+    introspection?: IntrospectionSchema;
+  }> {
     if (result.response === undefined) {
       return {
         kind: "Error",

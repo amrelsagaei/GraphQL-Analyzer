@@ -33,6 +33,8 @@ export type {
   DashboardActivity,
   ExplorerSession,
   SchemaImportResult,
+  SchemaDiscoveryResult,
+  EncodedIntrospectionSchema,
 } from "shared";
 
 export { type BackendEvents } from "./types";

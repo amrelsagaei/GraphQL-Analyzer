@@ -1,10 +1,12 @@
 import type { FrontendSDK } from "../plugins/sdk";
 
+import { createStorageService, type StorageService } from "./storage";
+
 export class ActivityService {
-  private sdk: FrontendSDK;
+  private storage: StorageService;
 
   constructor(sdk: FrontendSDK) {
-    this.sdk = sdk;
+    this.storage = createStorageService(sdk);
   }
 
   async addAttackActivity(
@@ -44,8 +46,12 @@ export class ActivityService {
           attackSessionId?: string;
         }>;
       };
-      const currentStorage: StorageData =
-        (this.sdk.storage.get() as StorageData | undefined) ?? {};
+      const currentStorage: StorageData = {
+        dashboardActivities:
+          this.storage.get<StorageData["dashboardActivities"]>(
+            "dashboardActivities",
+          ) ?? [],
+      };
 
       if (
         currentStorage.dashboardActivities === undefined ||
@@ -61,8 +67,9 @@ export class ActivityService {
           currentStorage.dashboardActivities.slice(0, 20);
       }
 
-      await this.sdk.storage.set(
-        currentStorage as unknown as Record<string, never>,
+      await this.storage.set(
+        "dashboardActivities",
+        currentStorage.dashboardActivities,
       );
     } catch {
       // Ignore storage errors
