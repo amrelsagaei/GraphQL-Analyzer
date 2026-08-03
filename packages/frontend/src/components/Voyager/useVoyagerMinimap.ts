@@ -2,6 +2,7 @@ import * as d3 from "d3";
 import { computed, type Ref } from "vue";
 
 import type { D3Node } from "./types";
+import { getGraphBounds } from "./types";
 
 export function useVoyagerMinimap(
   minimapSvg: Ref<SVGSVGElement | undefined>,
@@ -18,17 +19,17 @@ export function useVoyagerMinimap(
       return { x: 0, y: 0, width: 1000, height: 1000 };
     }
 
-    const nodes = cachedD3Data.value.nodes;
-    const minX = Math.min(...nodes.map((n: D3Node) => n.x)) - 50;
-    const maxX = Math.max(...nodes.map((n: D3Node) => n.x + n.width)) + 50;
-    const minY = Math.min(...nodes.map((n: D3Node) => n.y)) - 50;
-    const maxY = Math.max(...nodes.map((n: D3Node) => n.y + n.height)) + 50;
+    return getGraphBounds(cachedD3Data.value.nodes, 50);
+  });
 
+  const minimapViewport = computed(() => {
+    const transform = currentTransform.value;
+    const rect = voyagerContainer.value?.getBoundingClientRect();
     return {
-      x: minX,
-      y: minY,
-      width: maxX - minX,
-      height: maxY - minY,
+      x: -transform.x / transform.k,
+      y: -transform.y / transform.k,
+      width: (rect?.width ?? 1) / transform.k,
+      height: (rect?.height ?? 1) / transform.k,
     };
   });
 
@@ -101,6 +102,7 @@ export function useVoyagerMinimap(
 
   return {
     minimapViewBox,
+    minimapViewport,
     setupMinimapDrag,
   };
 }

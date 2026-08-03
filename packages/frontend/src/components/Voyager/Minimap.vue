@@ -1,12 +1,11 @@
 <script setup lang="ts">
-import type * as d3 from "d3";
 import { onMounted, ref } from "vue";
 
 import type { D3Node } from "./types";
 
 defineProps<{
   minimapViewBox: { x: number; y: number; width: number; height: number };
-  currentTransform: d3.ZoomTransform;
+  minimapViewport: { x: number; y: number; width: number; height: number };
   cachedD3Data: { nodes: D3Node[]; links: unknown[] } | undefined;
 }>();
 
@@ -45,16 +44,16 @@ onMounted(() => {
             fill="white"
           />
           <rect
-            :x="-currentTransform.x / currentTransform.k"
-            :y="-currentTransform.y / currentTransform.k"
-            :width="minimapViewBox.width / currentTransform.k"
-            :height="minimapViewBox.height / currentTransform.k"
+            :x="minimapViewport.x"
+            :y="minimapViewport.y"
+            :width="minimapViewport.width"
+            :height="minimapViewport.height"
             fill="black"
           />
         </mask>
       </defs>
 
-      <g>
+      <g v-memo="[cachedD3Data]">
         <rect
           v-for="node in cachedD3Data.nodes"
           :key="node.id"
@@ -66,7 +65,9 @@ onMounted(() => {
           opacity="0.6"
           stroke="none"
         />
+      </g>
 
+      <g>
         <rect
           :x="minimapViewBox.x"
           :y="minimapViewBox.y"
@@ -80,10 +81,10 @@ onMounted(() => {
 
         <rect
           class="minimap-viewport"
-          :x="-currentTransform.x / currentTransform.k"
-          :y="-currentTransform.y / currentTransform.k"
-          :width="minimapViewBox.width / currentTransform.k"
-          :height="minimapViewBox.height / currentTransform.k"
+          :x="minimapViewport.x"
+          :y="minimapViewport.y"
+          :width="minimapViewport.width"
+          :height="minimapViewport.height"
           fill="rgba(255, 255, 255, 0.05)"
           stroke="hsl(var(--c-primary-300))"
           stroke-width="35"

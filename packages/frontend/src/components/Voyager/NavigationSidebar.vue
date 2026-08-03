@@ -15,21 +15,13 @@ defineEmits<{
   "update:searchTerm": [value: string];
   "update:isExpanded": [value: boolean];
   "item-click": [item: NavItem];
-  "toggle-section": [sectionName: string];
-  "should-show-children": [item: NavItem];
 }>();
 
 const shouldShowChildren = (
   item: NavItem,
   expandedSections: Record<string, boolean>,
 ): boolean => {
-  if (
-    item.type === "root" &&
-    ["Query", "Mutation", "Subscription"].includes(item.name)
-  ) {
-    return expandedSections[item.name] === true;
-  }
-  return true;
+  return expandedSections[item.name] === true;
 };
 </script>
 
@@ -59,7 +51,12 @@ const shouldShowChildren = (
     </div>
 
     <div class="flex-1 overflow-y-auto overflow-x-hidden p-2">
-      <div v-for="item in filteredItems" :key="item.name" class="mb-1">
+      <div
+        v-for="item in filteredItems"
+        :key="item.name"
+        class="mb-1"
+        style="content-visibility: auto; contain-intrinsic-size: 40px"
+      >
         <div
           class="flex items-center justify-between p-2 rounded cursor-pointer hover:bg-surface-700 transition-colors min-w-0"
           :class="{
@@ -102,13 +99,15 @@ const shouldShowChildren = (
           <span
             class="text-xs text-surface-400 bg-surface-800 px-2 py-1 rounded flex-shrink-0 ml-2"
           >
-            {{ item.children?.length || 0 }}
+            {{ item.childCount ?? item.children?.length ?? 0 }}
           </span>
         </div>
 
         <div
           v-if="
-            item.children?.length && shouldShowChildren(item, expandedSections)
+            item.children?.length &&
+            (searchTerm.trim() !== '' ||
+              shouldShowChildren(item, expandedSections))
           "
           class="ml-6 mt-1"
         >

@@ -1,4 +1,4 @@
-import type { ExplorerSession, GraphQLField } from "shared";
+import type { ExplorerSession } from "shared";
 
 export type { ExplorerSession };
 
@@ -22,11 +22,61 @@ export type D3Link = {
   fromRoot?: boolean;
 };
 
+export type VoyagerData = {
+  nodes: D3Node[];
+  links: D3Link[];
+  linksBySource: Map<number, D3Link[]>;
+  sourcesByTarget: Map<number, number[]>;
+};
+
+export type GraphBounds = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+
+export type ViewportExtent = [[number, number], [number, number]];
+
+export function getViewportExtent(
+  width: number,
+  height: number,
+): ViewportExtent {
+  return [
+    [0, 0],
+    [Math.max(width, 1), Math.max(height, 1)],
+  ];
+}
+
+export function getGraphBounds(
+  nodes: readonly D3Node[],
+  padding = 0,
+): GraphBounds {
+  if (nodes.length === 0) return { x: 0, y: 0, width: 1, height: 1 };
+  let minX = Number.POSITIVE_INFINITY;
+  let minY = Number.POSITIVE_INFINITY;
+  let maxX = Number.NEGATIVE_INFINITY;
+  let maxY = Number.NEGATIVE_INFINITY;
+  for (const node of nodes) {
+    minX = Math.min(minX, node.x);
+    minY = Math.min(minY, node.y);
+    maxX = Math.max(maxX, node.x + node.width);
+    maxY = Math.max(maxY, node.y + node.height);
+  }
+  return {
+    x: minX - padding,
+    y: minY - padding,
+    width: maxX - minX + padding * 2,
+    height: maxY - minY + padding * 2,
+  };
+}
+
 export type NavItem = {
   name: string;
   type: string;
   parent?: string;
   children?: NavItem[];
+  childCount?: number;
   fullSignature?: string;
   fieldData?: unknown;
 };
@@ -44,23 +94,6 @@ export const LAYOUT = {
   FIELD_HEIGHT: 18,
   PADDING: 20,
 };
-
-export function formatFieldSignature(field: GraphQLField): string {
-  let signature = field.name;
-
-  if (field.args.length > 0) {
-    const argsStr = field.args
-      .map((arg: { name: string; type: string }) => `${arg.name}: ${arg.type}`)
-      .join(", ");
-    signature += `(${argsStr})`;
-  }
-
-  if (field.type !== undefined) {
-    signature += `: ${field.type}`;
-  }
-
-  return signature;
-}
 
 export function extractTypeName(typeString: string): string {
   if (typeString === "") return "";
