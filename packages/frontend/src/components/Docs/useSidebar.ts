@@ -8,6 +8,7 @@ type Section = {
 export const useSidebar = () => {
   const sections: Section[] = [
     { id: "getting-started", title: "Getting Started" },
+    { id: "graphql-view-mode", title: "GraphQL View Mode" },
     { id: "schema-discovery", title: "Schema Discovery" },
     { id: "schema-visualization", title: "Schema Visualization" },
     { id: "security-testing", title: "Security Testing" },
