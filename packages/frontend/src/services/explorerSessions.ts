@@ -35,11 +35,16 @@ export class ExplorerSessionStore {
   );
 
   private readonly storage: StorageService;
+  private readonly preservedSessions = new Map<
+    string,
+    PersistedExplorerSession
+  >();
+  private persistedSessionOrder: string[] = [];
   private loadPromise: Promise<void> | undefined;
   private loaded = false;
 
-  constructor(sdk: FrontendSDK) {
-    this.storage = createStorageService(sdk);
+  constructor(sdk: FrontendSDK, storage?: StorageService) {
+    this.storage = storage ?? createStorageService(sdk);
   }
 
   async load(): Promise<void> {
@@ -62,6 +67,7 @@ export class ExplorerSessionStore {
 
   async add(session: ExplorerSession): Promise<void> {
     await this.load();
+    this.preservedSessions.delete(session.id);
     this.sessions.value = [...this.sessions.value, markSessionRaw(session)];
     this.selectedSessionId.value = session.id;
     await this.persist();
@@ -69,9 +75,21 @@ export class ExplorerSessionStore {
 
   async upsertByRequestId(session: ExplorerSession): Promise<void> {
     await this.load();
+    for (const [id, preserved] of this.preservedSessions) {
+      if (
+        preserved.requestId !== undefined &&
+        preserved.requestId === session.requestId
+      ) {
+        this.preservedSessions.delete(id);
+        this.persistedSessionOrder = this.persistedSessionOrder.filter(
+          (candidateId) => candidateId !== id,
+        );
+      }
+    }
     const index = this.sessions.value.findIndex(
       (candidate) => candidate.requestId === session.requestId,
     );
+    this.preservedSessions.delete(session.id);
     if (index === -1) {
       this.sessions.value = [...this.sessions.value, markSessionRaw(session)];
     } else {
@@ -93,6 +111,10 @@ export class ExplorerSessionStore {
 
   async remove(sessionId: string): Promise<void> {
     await this.load();
+    this.preservedSessions.delete(sessionId);
+    this.persistedSessionOrder = this.persistedSessionOrder.filter(
+      (id) => id !== sessionId,
+    );
     this.sessions.value = this.sessions.value.filter(
       (session) => session.id !== sessionId,
     );
@@ -104,6 +126,10 @@ export class ExplorerSessionStore {
 
   async rename(sessionId: string, title: string): Promise<void> {
     await this.load();
+    const preserved = this.preservedSessions.get(sessionId);
+    if (preserved !== undefined) {
+      this.preservedSessions.set(sessionId, { ...preserved, title });
+    }
     this.sessions.value = this.sessions.value.map((session) =>
       session.id === sessionId ? { ...session, title } : session,
     );
@@ -113,6 +139,8 @@ export class ExplorerSessionStore {
   async clear(): Promise<void> {
     this.sessions.value = [];
     this.selectedSessionId.value = undefined;
+    this.preservedSessions.clear();
+    this.persistedSessionOrder = [];
     this.loaded = true;
     await this.storage.setMultiple({
       [SESSIONS_KEY]: [],
@@ -121,10 +149,32 @@ export class ExplorerSessionStore {
   }
 
   async persist(): Promise<void> {
+    const serializedById = new Map(
+      this.sessions.value.map((session) => [
+        session.id,
+        serializeSession(session),
+      ]),
+    );
+    const persistedSessions: PersistedExplorerSession[] = [];
+    const includedIds = new Set<string>();
+
+    for (const id of this.persistedSessionOrder) {
+      const serialized = serializedById.get(id);
+      const preserved = this.preservedSessions.get(id);
+      if (serialized !== undefined) persistedSessions.push(serialized);
+      else if (preserved !== undefined) persistedSessions.push(preserved);
+      if (serialized !== undefined || preserved !== undefined)
+        includedIds.add(id);
+    }
+    for (const [id, serialized] of serializedById) {
+      if (!includedIds.has(id)) persistedSessions.push(serialized);
+    }
+
     await this.storage.setMultiple({
-      [SESSIONS_KEY]: this.sessions.value.map(serializeSession),
+      [SESSIONS_KEY]: persistedSessions,
       [SELECTED_SESSION_KEY]: this.selectedSessionId.value,
     });
+    this.persistedSessionOrder = persistedSessions.map((session) => session.id);
   }
 
   private async loadFromStorage(): Promise<void> {
@@ -132,6 +182,8 @@ export class ExplorerSessionStore {
     const sessions = Array.isArray(stored) ? stored : [];
     const hydratedSessions: ExplorerSession[] = [];
     let migrated = false;
+    this.preservedSessions.clear();
+    this.persistedSessionOrder = sessions.map((session) => session.id);
 
     for (const session of sessions) {
       try {
@@ -139,6 +191,7 @@ export class ExplorerSessionStore {
         hydratedSessions.push(hydrated.session);
         migrated ||= hydrated.migrated;
       } catch (error) {
+        this.preservedSessions.set(session.id, session);
         console.error(
           `Failed to load GraphQL session "${session.title}": ${error instanceof Error ? error.message : String(error)}`,
         );
