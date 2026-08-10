@@ -1368,6 +1368,28 @@ const createFindingFromResult = async (result: AttackResult) => {
   }
 };
 
+const copyFindingToClipboard = async (
+  finding: AttackResult["findings"][number],
+) => {
+  const evidence =
+    finding.evidence !== undefined && finding.evidence.trim() !== ""
+      ? `\n\nEvidence:\n${finding.evidence}`
+      : "";
+  const recommendation =
+    finding.recommendation !== undefined &&
+    finding.recommendation.trim() !== ""
+      ? `\n\nRecommendation:\n${finding.recommendation}`
+      : "";
+  const findingText = `${finding.title}
+
+Severity: ${finding.severity.toUpperCase()}
+
+Description:
+${finding.description}${evidence}${recommendation}`;
+
+  await copyToClipboard(findingText);
+};
+
 const sendToReplay = async (result: AttackResult) => {
   if (result.rawRequest === undefined || result.rawRequest === "") {
     sdk.window.showToast("No request data available for replay", {
@@ -2324,6 +2346,15 @@ export default {
                                         >
                                           {{ finding.severity }}
                                         </span>
+
+                                        <Button
+                                          icon="fas fa-copy"
+                                          size="small"
+                                          severity="secondary"
+                                          aria-label="Copy finding to clipboard"
+                                          @click="copyFindingToClipboard(finding)"
+                                          v-tooltip="'Copy to clipboard'"
+                                        />
 
                                         <!-- Create Finding Button (for all severities) -->
                                         <Button
